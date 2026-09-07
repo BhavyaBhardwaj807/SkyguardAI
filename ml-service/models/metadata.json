@@ -17,17 +17,17 @@
   ],
   "contamination": 0.05,
   "calibration": {
-    "score_min": -0.14229559996748908,
-    "score_max": 0.20953797519488862
+    "score_min": -0.1337123791338718,
+    "score_max": 0.21233051871533629
   },
   "metrics": {
-    "precision": 0.312,
-    "recall": 0.4431818181818182,
-    "f1": 0.36619718309859156,
-    "pr_auc": 0.2701979741542947,
-    "roc_auc": 0.8324184384164223,
-    "false_alarm_rate": 0.03467741935483871,
-    "regional_event_fps": 0,
-    "regional_event_total": 0
+    "precision": 0.46703296703296704,
+    "recall": 0.7589285714285714,
+    "f1": 0.5782312925170068,
+    "pr_auc": 0.45506701948563794,
+    "roc_auc": 0.9180646835005188,
+    "false_alarm_rate": 0.03914447134786118,
+    "regional_event_fps": 11,
+    "regional_event_total": 78
   }
 }
