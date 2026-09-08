@@ -1,117 +1,179 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from typing import Optional, Dict
 import pandas as pd
 import numpy as np
 import joblib
 import json
 
-app = FastAPI()
+app = FastAPI(
+    title="SkyGuard AI - ML Microservice",
+    description="Isolation Forest Inference, Spatial QC, and SHAP Explainability Service",
+    version="2.0.0"
+)
 
 # Global variables for models and metadata
 scaler = None
 model = None
 explainer = None
 metadata = None
+spatial_baselines = {}
 
 class RawData(BaseModel):
-    temperature: float
-    pressure: float
-    humidity: float
+    temperature: Optional[float] = None
+    pressure: Optional[float] = None
+    humidity: Optional[float] = None
 
 class Features(BaseModel):
-    temp_rate: float
-    pressure_rate: float
-    humidity_rate: float
-    temp_rolling_mean: float
-    temp_rolling_std: float
-    pressure_rolling_mean: float
-    pressure_rolling_std: float
-    humidity_rolling_mean: float
-    humidity_rolling_std: float
-    temp_pressure_residual: float
-    temp_humidity_residual: float
-    spatial_temp_deviation: float
-    spatial_pressure_deviation: float
-    spatial_humidity_deviation: float
-    hour_sin: float
-    hour_cos: float
-    persistence_flag: bool
-    missing_flag: bool
-    duplicate_flag: bool
+    temp_rate: Optional[float] = 0.0
+    pressure_rate: Optional[float] = 0.0
+    humidity_rate: Optional[float] = 0.0
+    temp_rolling_mean: Optional[float] = 0.0
+    temp_rolling_std: Optional[float] = 0.0
+    pressure_rolling_mean: Optional[float] = 0.0
+    pressure_rolling_std: Optional[float] = 0.0
+    humidity_rolling_mean: Optional[float] = 0.0
+    humidity_rolling_std: Optional[float] = 0.0
+    temp_pressure_residual: Optional[float] = 0.0
+    temp_humidity_residual: Optional[float] = 0.0
+    spatial_temp_deviation: Optional[float] = 0.0
+    spatial_pressure_deviation: Optional[float] = 0.0
+    spatial_humidity_deviation: Optional[float] = 0.0
+    hour_sin: Optional[float] = 0.0
+    hour_cos: Optional[float] = 0.0
+    persistence_flag: Optional[bool] = False
+    missing_flag: Optional[bool] = False
+    duplicate_flag: Optional[bool] = False
 
 class PredictRequest(BaseModel):
     station_id: str
     timestamp: str
-    raw: RawData
+    raw: Optional[RawData] = None
     features: Features
 
 @app.on_event("startup")
 def load_artifacts():
-    global scaler, model, explainer, metadata
+    global scaler, model, explainer, metadata, spatial_baselines
     scaler = joblib.load('models/scaler.joblib')
     model = joblib.load('models/isolation_forest.joblib')
     explainer = joblib.load('models/explainer.joblib')
     
     with open('models/metadata.json', 'r') as f:
         metadata = json.load(f)
+    spatial_baselines = metadata.get('spatial_baselines', {})
 
-def calibrate_score(raw_score, score_min, score_max):
+def calibrate_score(raw_score: float, score_min: float, score_max: float) -> float:
     inv = -raw_score
     scaled = (inv - score_min) / (score_max - score_min)
     return float(np.clip(scaled, 0.0, 1.0))
 
+@app.get("/")
+@app.get("/health")
+def health_check():
+    return {
+        "status": "healthy",
+        "service": "SkyGuard AI ML Microservice",
+        "model_version": metadata.get("model_version", "unknown") if metadata else "uninitialized"
+    }
+
+# Support both /predict and /infer per V2 architecture specification
 @app.post("/predict")
+@app.post("/infer")
 def predict(req: PredictRequest):
-    # Prepare feature vector for Isolation Forest
     ml_features = metadata['features']
     feature_dict = req.features.dict()
     
-    x = [feature_dict[feat] for feat in ml_features]
+    # Safe float fallback for any None or NaN
+    x = []
+    for feat in ml_features:
+        val = feature_dict.get(feat)
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            x.append(0.0)
+        else:
+            x.append(float(val))
+            
     X_df = pd.DataFrame([x], columns=ml_features)
-    
     X_scaled = scaler.transform(X_df)
     
-    # Isolation Forest Prediction
-    raw_score = model.decision_function(X_scaled)[0]
-    if_score = calibrate_score(raw_score, metadata['calibration']['score_min'], metadata['calibration']['score_max'])
-    
-    # Calculate Spatial Score
-    spatial_dev_temp = abs(feature_dict['spatial_temp_deviation'])
-    spatial_dev_pres = abs(feature_dict['spatial_pressure_deviation'])
-    spatial_dev_hum = abs(feature_dict['spatial_humidity_deviation'])
-    
-    spatial_score = np.clip(
-        (spatial_dev_temp / 5.0 + spatial_dev_pres / 5.0 + spatial_dev_hum / 15.0) / 3.0, 
-        0.0, 1.0
+    # 1. Isolation Forest Raw & Calibrated Inference
+    raw_score = float(model.decision_function(X_scaled)[0])
+    if_score = calibrate_score(
+        raw_score,
+        metadata['calibration']['score_min'],
+        metadata['calibration']['score_max']
     )
     
-    # Calculate Signal Quality Score
-    signal_score = 1.0 if (feature_dict['persistence_flag'] or 
-                           feature_dict['missing_flag'] or 
-                           feature_dict['duplicate_flag']) else 0.0
-                           
-    # Composite Anomaly Score
-    anomaly_score = 0.6 * if_score + 0.25 * spatial_score + 0.15 * signal_score
+    # 2. Baseline-Adjusted Spatial Consistency Check
+    # Avoids elevation bias (e.g., Bengaluru 920m vs sea-level stations)
+    station_baseline = spatial_baselines.get(req.station_id, {
+        'temp_mean': 0.0, 'pres_mean': 0.0, 'hum_mean': 0.0
+    })
     
-    # SHAP feature contributions
+    raw_sp_temp = feature_dict.get('spatial_temp_deviation') or 0.0
+    raw_sp_pres = feature_dict.get('spatial_pressure_deviation') or 0.0
+    raw_sp_hum = feature_dict.get('spatial_humidity_deviation') or 0.0
+    
+    adj_sp_temp = abs(float(raw_sp_temp) - station_baseline.get('temp_mean', 0.0))
+    adj_sp_pres = abs(float(raw_sp_pres) - station_baseline.get('pres_mean', 0.0))
+    adj_sp_hum = abs(float(raw_sp_hum) - station_baseline.get('hum_mean', 0.0))
+    
+    # Channel breakaway: isolated sensor failures create extreme single-channel deviation
+    spatial_max_score = float(np.clip(
+        max(adj_sp_temp / 7.0, adj_sp_pres / 4.5, adj_sp_hum / 18.0),
+        0.0, 1.0
+    ))
+    
+    # 3. Hardware & Communication Quality Score
+    sig_fault = bool(
+        feature_dict.get('persistence_flag') or 
+        feature_dict.get('missing_flag') or 
+        feature_dict.get('duplicate_flag')
+    )
+    sig_score = 1.0 if sig_fault else 0.0
+    
+    # 4. Composite Scoring with Regional Weather Dampener
+    base_score = 0.55 * if_score + 0.30 * spatial_max_score + 0.15 * sig_score
+    
+    # If all variables and neighbors agree without breakaway and no hardware flags, dampen weather transients
+    no_breakaway = (adj_sp_temp < 5.0) and (adj_sp_pres < 3.5) and (adj_sp_hum < 14.0) and (not sig_fault)
+    if no_breakaway:
+        final_anomaly_score = base_score * 0.75
+    else:
+        final_anomaly_score = base_score
+        
+    # Guaranteed fault floor for hardware issues (missing data, stuck sensor, duplicate)
+    if sig_fault:
+        final_anomaly_score = max(final_anomaly_score, 0.88)
+        
+    final_anomaly_score = float(np.clip(final_anomaly_score, 0.0, 1.0))
+    
+    # 5. SHAP Feature Contributions (Normalized to Relative % Weights)
     shap_values = explainer.shap_values(X_scaled)
-    # SHAP values for IsolationForest can be negative/positive. 
-    # We'll take the absolute values for contribution magnitude.
-    contributions = {feat: float(abs(val)) for feat, val in zip(ml_features, shap_values[0])}
+    ml_contributions = {feat: float(abs(val)) for feat, val in zip(ml_features, shap_values[0])}
     
-    # Add spatial deviations into contributions for the dashboard to show them if they are high
-    contributions['spatial_temp_deviation'] = float(spatial_dev_temp)
-    contributions['spatial_pressure_deviation'] = float(spatial_dev_pres)
-    contributions['spatial_humidity_deviation'] = float(spatial_dev_hum)
+    # Incorporate normalized spatial influences
+    ml_contributions['spatial_temp_deviation'] = float(adj_sp_temp / 7.0)
+    ml_contributions['spatial_pressure_deviation'] = float(adj_sp_pres / 4.5)
+    ml_contributions['spatial_humidity_deviation'] = float(adj_sp_hum / 18.0)
     
-    # Sort contributions to return the top 3-5 drivers
-    sorted_contributions = dict(sorted(contributions.items(), key=lambda item: item[1], reverse=True)[:5])
+    if sig_fault:
+        if feature_dict.get('missing_flag'):
+            ml_contributions['missing_flag'] = 1.0
+        if feature_dict.get('persistence_flag'):
+            ml_contributions['persistence_flag'] = 1.0
+        if feature_dict.get('duplicate_flag'):
+            ml_contributions['duplicate_flag'] = 1.0
+            
+    total_impact = sum(ml_contributions.values()) or 1.0
+    # Normalize to relative weights summing to 1.0
+    normalized_contributions = {k: round(v / total_impact, 4) for k, v in ml_contributions.items()}
+    top_contributions = dict(sorted(normalized_contributions.items(), key=lambda item: item[1], reverse=True)[:5])
 
     return {
         "station_id": req.station_id,
         "timestamp": req.timestamp,
-        "anomaly_score": round(float(anomaly_score), 4),
-        "raw_isolation_score": round(float(raw_score), 4),
-        "feature_contributions": {k: round(v, 4) for k, v in sorted_contributions.items()},
-        "model_version": metadata['model_version']
+        "anomaly_score": round(final_anomaly_score, 4),
+        "raw_isolation_score": round(raw_score, 4),
+        "feature_contributions": top_contributions,
+        "model_version": metadata.get('model_version', 'if_v2_2026-09-09')
     }
