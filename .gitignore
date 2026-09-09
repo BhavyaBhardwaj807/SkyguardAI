@@ -25,3 +25,12 @@ wheels/
 .vscode/
 .idea/
 .DS_Store
+
+# Node application workspace
+node_modules/
+.next/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+coverage/

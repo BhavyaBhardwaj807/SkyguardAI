@@ -1,0 +1,6 @@
+node_modules
+.next
+src/app/backend/dist
+data
+ml-service
+package-lock.json
