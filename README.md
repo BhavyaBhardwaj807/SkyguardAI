@@ -77,6 +77,56 @@ SkyGuard AI is architected for a 6-person collaborative engineering team:
 
 *Note: Edge AI / ESP32 firmware quantization is explicitly deferred as future work.*
 
+## System Architecture & Technical Specifications
+
+### Data Source Specifications
+- **Current Prototype Dataset**: Open-Meteo-derived meteorological observations for 6 major Indian geographic locations (Delhi `AWS001`, Mumbai `AWS002`, Bengaluru `AWS003`, Chennai `AWS004`, Kolkata `AWS005`, Hyderabad `AWS006`) covering hourly samples, injected with 14 deterministic synthetic anomaly scenarios for reproducibility and stress-testing.
+- **Target Production Source**: Official Indian Meteorological Department (IMD) Automatic Weather Station (AWS) telemetry via authorized API gateway / SFTP ingestion.
+- **Context & Reanalysis Reference**: Open-Meteo historical archives and ECMWF ERA5 reanalysis data used for regional calibration.
+
+### 40-Column Feature Matrix Breakdown
+`data/features.csv` contains exactly **40 columns** partitioned into 5 functional layers:
+1. **Timestamps (4)**: `timestamp`, `hour`, `day_of_week`, `month`
+2. **Station Metadata (4)**: `station_id`, `station_name`, `latitude`, `longitude`
+3. **Raw Physical Measurements (6)**: `temperature_c`, `pressure_hpa`, `humidity_pct`, and pre-injection baselines `original_temperature_c`, `original_pressure_hpa`, `original_humidity_pct`
+4. **Evaluation Ground-Truth (7)**: `anomaly_label`, `anomaly_type`, `anomaly_id`, `affected_parameter`, `injection_start`, `injection_end`, `scenario_tag` *(strictly excluded from model input to prevent leakage)*
+5. **Engineered Features & Quality Flags (19)**:
+   - **Isolation Forest Inputs (13)**: `temp_rate`, `pressure_rate`, `humidity_rate`, `temp_rolling_mean`, `temp_rolling_std`, `pressure_rolling_mean`, `pressure_rolling_std`, `humidity_rolling_mean`, `humidity_rolling_std`, `temp_pressure_residual`, `temp_humidity_residual`, `hour_sin`, `hour_cos`
+   - **Spatial Deviation Layer (3)**: `spatial_temp_deviation`, `spatial_pressure_deviation`, `spatial_humidity_deviation` *(handled in station-calibrated elevation baseline layer to prevent topographic altitude bias)*
+   - **Hardware Quality Flags (3)**: `persistence_flag`, `missing_flag`, `duplicate_flag` *(handled in deterministic hardware score layer)*
+
+### Real-Time Architecture
+- **Active Real-Time Stream**: **Server-Sent Events (SSE)**. The Express backend exposes a durable event stream at `/api/v1/events?runId=...` (`src/backend/events.ts`). The Next.js replay runner (`src/app/demo/page.tsx`) connects directly via native browser `new EventSource()` to receive real-time anomaly alerts, batch commits, and state transitions.
+- **Socket Client Stub**: `src/sockets/socketClient.js` was created as an early frontend rehearsal stub with `USE_MOCK_SOCKET = true`. The production real-time communication is entirely driven by SSE.
+
+### Database Architecture
+- **Current Prototype**: **PostgreSQL 17** for local Docker deployments and **PGlite** (embedded in-process PostgreSQL WASM engine) for automated integration tests, ensuring tests run self-contained without external database daemons.
+- **Future Production Plan**: PostgreSQL with **TimescaleDB** extension for hypertables, automatic chunk compression, and continuous time-series rollups.
+
+### Python Environment & Requirements
+- **Root `requirements.txt`**: Used to provision the local project virtual environment (`.venv`) for both Data Engineers (running `data/pipeline/*.py`) and ML Engineers.
+- **`ml-service/requirements.txt`**: Used exclusively inside `ml-service/Dockerfile` for isolated, containerized microservice builds.
+
+### Sensor Health & Spatial Self-Healing Guarantees
+- **Sensor Health (0–100)**: A heuristic data-quality condition indicator calculated over 30-day baseline and 7-day evaluation windows:
+  $$\text{Score} = 100 - 30 \cdot \text{anomalyRate} - 25 \cdot \text{persistenceRate} - 20 \cdot \text{drift} - 15 \cdot \text{varianceChange} - 10 \cdot \text{missingRate}$$
+  *This is a data-reliability indicator, not predictive maintenance AI.*
+- **Spatial Corrections**: Computed using Inverse Distance Weighting (IDW) from up to 3 normal peer stations within 100 km. Estimates are proposed as separate records for operator review and **NEVER overwrite raw observations**.
+
+### Current Model Performance & Evaluation Transparency
+Trained on normal observations and evaluated on a 30% chronological holdout test set containing injected anomalies:
+- **Precision**: 0.3333
+- **Recall**: 0.6126
+- **F1 Score**: 0.4317
+- **PR-AUC**: 0.2625
+- **ROC-AUC**: 0.8224
+- **False Alarm Rate**: 0.0547 (5.47%)
+- **Regional Event False Positives**: 0 (Coordinated regional weather shifts are successfully recognized and not flagged as sensor faults).
+
+### Project Scope & Future Work
+- **Implemented**: Next.js 16 Dashboard, Express 5 Backend, PostgreSQL/PGlite Storage, FastAPI ML Service (:8000), Isolation Forest, SHAP Attribution, Data Quality Rules, Synthetic Anomaly Generator, SSE Event Stream.
+- **Future Work (Post-Qualification)**: ESP32 Edge AI firmware deployment, TensorFlow Lite Micro quantization, on-device TinyML inference, IMD AWS live API integration, TimescaleDB production cluster. *(No edge or esp32 code is included in this repository).*
+
 ---
 
 ## Quickstart & Execution Guide
