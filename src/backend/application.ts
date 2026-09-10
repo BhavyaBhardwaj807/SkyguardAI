@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Database } from "./db/database.js";
 import type { Catalog } from "./modules/catalog.js";
-import { id, instant } from "../../contracts/index.js";
+import { id, instant } from "../contracts/index.js";
 import { HttpError, ingest } from "./modules/ingestion.js";
 import { createRun } from "./modules/replay.js";
 import { sensorHealth } from "./modules/health.js";

@@ -8,8 +8,12 @@ import pandas as pd
 # CONFIGURATION
 # ============================================================
 
-DEFAULT_INPUT = "data/injected_stations.csv"
-DEFAULT_OUTPUT = "data/features.csv"
+from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_DATA_DIR = _REPO_ROOT / "data" if (_REPO_ROOT / "data").exists() else Path("data")
+
+DEFAULT_INPUT = str(_DATA_DIR / "injected_stations.csv")
+DEFAULT_OUTPUT = str(_DATA_DIR / "features.csv")
 
 ROLLING_WINDOW = 6
 MIN_RELATIONSHIP_SAMPLES = 10

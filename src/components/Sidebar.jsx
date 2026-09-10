@@ -24,6 +24,7 @@ const MAIN_LINKS = [
   { to: "/dashboard", label: "Overview", icon: LayoutGrid, exact: true },
   { to: "/dashboard/map", label: "Live map", icon: MapPin },
   { to: "/dashboard/anomalies", label: "Active anomalies", icon: AlertTriangle },
+  { to: "/demo", label: "Replay Simulation", icon: CircleDot },
 ];
 
 const ANALYTICS_LINKS = [

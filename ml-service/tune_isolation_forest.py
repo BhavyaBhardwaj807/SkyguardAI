@@ -1,11 +1,11 @@
 import os
+import sys
 import subprocess
 import json
 import numpy as np
 
 def run_command(cmd, cwd=None):
-    # Using the global python interpreter that has the packages
-    python_exe = r"C:\Users\manas\AppData\Local\Programs\Python\Python311\python.exe"
+    python_exe = sys.executable
     if cmd.startswith("python "):
         cmd = f'"{python_exe}" ' + cmd[7:]
     
@@ -32,10 +32,10 @@ def main():
         print(f"--- Testing Seed {seed} ---")
         
         # 1. Inject anomalies
-        run_command(f'python injection_engine.py --seed {seed}', cwd="..")
+        run_command(f'python data/pipeline/injection_engine.py --seed {seed}', cwd="..")
         
         # 2. Generate features
-        run_command(f'python features.py', cwd="..")
+        run_command(f'python data/pipeline/features.py', cwd="..")
         
         # 3. Train and evaluate Isolation Forest
         run_command(f'python train_isolation_forest.py')

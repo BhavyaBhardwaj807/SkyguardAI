@@ -5,7 +5,7 @@ import {
   type Observation,
   type Prediction,
   type Evidence,
-} from "../../../contracts/index.js";
+} from "../../contracts/index.js";
 export type Predictor = (o: Observation, time: string) => Promise<Prediction>;
 export function predictionClient(base: string, timeout: number): Predictor {
   return async (o, time) => {

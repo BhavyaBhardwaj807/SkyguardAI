@@ -12,5 +12,7 @@ async function check(dir) {
       throw new Error(`Frontend imports backend: ${path}`);
   }
 }
-await check("src/app/frontend");
+for (const dir of ["src/app", "src/components", "src/api", "src/theme", "src/sockets"]) {
+  await check(dir);
+}
 console.log("Frontend/backend import boundary passed");

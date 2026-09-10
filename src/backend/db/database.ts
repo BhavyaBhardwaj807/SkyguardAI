@@ -38,7 +38,7 @@ export function postgres(url: string): Database {
 export async function migrate(db: Database, root: string) {
   await db.transaction(async (q) => {
     await q.query(
-      await readFile(`${root}/src/app/backend/db/schema.sql`, "utf8"),
+      await readFile(`${root}/src/backend/db/schema.sql`, "utf8"),
     );
   });
 }

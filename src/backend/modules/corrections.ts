@@ -3,7 +3,7 @@ import type {
   Assessment,
   Observation,
   Station,
-} from "../../../contracts/index.js";
+} from "../../contracts/index.js";
 import type { Queryable } from "../db/database.js";
 export function distance(a: Station, b: Station) {
   const rad = Math.PI / 180,

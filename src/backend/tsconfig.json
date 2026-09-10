@@ -3,13 +3,13 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "rootDir": "../..",
+    "rootDir": "..",
     "outDir": "dist",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": ["**/*.ts", "../../contracts/**/*.ts"],
+  "include": ["**/*.ts", "../contracts/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

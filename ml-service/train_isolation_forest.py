@@ -8,7 +8,14 @@ import shap
 import json
 import os
 
-def load_data(filepath='../data/features.csv'):
+def load_data(filepath=None):
+    if filepath is None:
+        for candidate in ['../data/features.csv', 'data/features.csv', os.path.join(os.path.dirname(__file__), '..', 'data', 'features.csv')]:
+            if os.path.exists(candidate):
+                filepath = candidate
+                break
+        if filepath is None:
+            filepath = '../data/features.csv'
     df = pd.read_csv(filepath)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df = df.sort_values(by=['station_id', 'timestamp'])
@@ -16,7 +23,7 @@ def load_data(filepath='../data/features.csv'):
 
 def main():
     print("Loading data...")
-    df = load_data('../data/features.csv')
+    df = load_data()
     
     # Chronological split (first 70% for train, last 30% for test)
     split_time = df['timestamp'].quantile(0.7)
@@ -147,10 +154,11 @@ def main():
     explainer = shap.TreeExplainer(model)
     
     print("Saving models and metadata...")
-    os.makedirs('models', exist_ok=True)
-    joblib.dump(scaler, 'models/scaler.joblib')
-    joblib.dump(model, 'models/isolation_forest.joblib')
-    joblib.dump(explainer, 'models/explainer.joblib')
+    models_dir = os.path.join(os.path.dirname(__file__), 'models')
+    os.makedirs(models_dir, exist_ok=True)
+    joblib.dump(scaler, os.path.join(models_dir, 'scaler.joblib'))
+    joblib.dump(model, os.path.join(models_dir, 'isolation_forest.joblib'))
+    joblib.dump(explainer, os.path.join(models_dir, 'explainer.joblib'))
 
     metadata = {
         'model_version': 'if_v2_2026-09-09',
@@ -172,7 +180,7 @@ def main():
             'regional_event_total': int(regional_total)
         }
     }
-    with open('models/metadata.json', 'w') as f:
+    with open(os.path.join(models_dir, 'metadata.json'), 'w') as f:
         json.dump(metadata, f, indent=2)
 
     print("Done! Model and metadata saved to ml-service/models/")

@@ -56,28 +56,105 @@ Tests use PGlite, an embedded PostgreSQL engine, and an explicit test predictor.
 
 </details>
 
-## Workspace
+## Architecture & Team Workspace Mapping
 
-| Location            | Responsibility                                                                                  |
-| ------------------- | ----------------------------------------------------------------------------------------------- |
-| `src/app/frontend/` | Minimal replay integration screen; frontend team can extend it                                  |
-| `src/app/backend/`  | Express, migrations, ingestion, worker, replay, prediction adapter, health, corrections and SSE |
-| `src/contracts/`    | Shared validation schemas and browser-safe types                                                |
-| `ml-service/`       | Existing Python model service, unchanged                                                        |
-| `data/`             | Existing source and feature datasets, unchanged                                                 |
-| `docs/`             | API reference, decisions and frontend/ML handoff                                                |
+SkyGuard AI is architected for a 6-person collaborative engineering team:
 
-The root package is the Next.js app; the backend is an npm workspace with its own build/start commands. Folder colocation does not combine runtimes. Next.js never imports backend code or starts its worker.
+| Workspace Path | Owner | Primary Responsibility & Components |
+| :--- | :--- | :--- |
+| `src/app/` | Persons 4 & 5 | Next.js App Router (Landing page, `/dashboard/*` mission control, `/demo` replay runner) |
+| `src/components/` | Persons 4 & 5 | Reusable UI components (Sidebar, Leaflet MapPanel, Recharts trends, AnomalyTable) |
+| `src/theme/` | Person 4 | Design system tokens (`tokens.css`), global styles (`styles.css`), and `ThemeContext` |
+| `src/api/` & `src/sockets/` | Person 5 | Frontend REST client, mock fallbacks, and real-time Socket.IO/SSE wrappers |
+| `src/backend/` | Person 3 | Node.js Express application workspace (`@skyguard/backend`), PGlite/Postgres, queue worker, SSE hub, self-healing |
+| `src/contracts/` | Person 6 | Shared Zod schemas and browser-safe TypeScript types (`Observation`, `Batch`, `Assessment`) |
+| `ml-service/` | Person 1 | Isolation Forest model, spatial baselines, SHAP tree explainability, FastAPI microservice (:8000) |
+| `data/pipeline/` | Person 2 | Data ingestion (`load_data.py`), WMO QC rules (`qc_rules.py`), anomaly engine (`injection_engine.py`), features (`features.py`) |
+| `data/` | Person 2 | Historical CSV datasets (`clean_stations.csv`, `qc_stations.csv`, `injected_stations.csv`, `features.csv`) |
+| `docker/` | Person 6 | Multi-stage Docker builds (`Dockerfile.node`, `nginx.conf`, `compose.yaml`) |
+| `tests/` & `scripts/` | Person 6 | 16 PGlite integration tests, boundary enforcement (`check-boundaries.mjs`), OpenAPI generator |
+| `docs/` | All Team | System API specifications, math handoff logic, architectural provenance notes |
 
-## Backend guarantees and limits
+*Note: Edge AI / ESP32 firmware quantization is explicitly deferred as future work.*
+
+---
+
+## Quickstart & Execution Guide
+
+### 1. Run Automated Test Suite
+```bash
+# Run all 16 backend integration tests using embedded PGlite (no DB install needed)
+npm test
+
+# Verify architectural boundary isolation (ensures frontend never imports backend)
+npm run check:boundaries
+
+# Run TypeScript type check across Next.js and backend workspaces
+npm run typecheck
+
+# Run Next.js production build
+npm run build
+```
+
+### 2. Run the Python ML Microservice
+```bash
+# Start FastAPI service on port 8000
+.\.venv\Scripts\python.exe -m uvicorn predict_service:app --host 127.0.0.1 --port 8000 --app-dir ml-service
+
+# Run real-time streaming simulation test
+.\.venv\Scripts\python.exe ml-service/test_api.py
+
+# Re-train Isolation Forest model & update spatial baselines
+.\.venv\Scripts\python.exe ml-service/train_isolation_forest.py
+```
+
+### 3. Run the Data Pipeline
+```bash
+# Run WMO-standard physical QC checks
+.\.venv\Scripts\python.exe data/pipeline/qc_rules.py
+
+# Run synthetic anomaly injection engine (14 scenarios)
+.\.venv\Scripts\python.exe data/pipeline/injection_engine.py --seed 42
+
+# Run feature engineering pipeline (rolling windows, spatial deviations)
+.\.venv\Scripts\python.exe data/pipeline/features.py
+```
+
+### 4. Run Frontend & Backend Workspaces
+```bash
+# Start Node.js Express Backend on port 4000
+npm run dev:api
+
+# Start Next.js Frontend on port 3000
+npm run dev:web
+
+# Or run both concurrently:
+npm run dev
+
+# URLs:
+# - Landing Page:               http://localhost:3000/
+# - Mission Control Dashboard:  http://localhost:3000/dashboard
+# - Live Station Map:           http://localhost:3000/dashboard/map
+# - Interactive Replay Runner:  http://localhost:3000/demo
+```
+
+### 5. Run with Docker Compose
+```bash
+docker compose up --build
+# Open http://localhost:8080 for Nginx reverse proxy
+```
+
+---
+
+## Backend Guarantees and Limits
 
 - Raw observations and pending jobs commit together. Identical retries reuse the receipt; conflicting content returns `409`.
-- Each replay has its own history, cursor and assessments. Reset means a new run.
+- Each replay has its own history, cursor, and assessments. Reset means a new run.
 - One database-locked API/worker instance processes batches with bounded retries. Python calls happen outside database transactions.
 - Assessments commit before SSE notifications. Reconnect and periodic REST reconciliation repair missed notifications.
-- Missing data, processing failures and unknown states never imply healthy sensors.
+- Missing data, processing failures, and unknown states never imply healthy sensors.
 - Health scores require adequate history. Correction proposals are separate, reviewed records and never replace raw values.
 - The existing six distant locations do not provide three usable neighbors within the prototype 100 km correction radius. Correction estimates will correctly be unavailable.
-- Offline feature leakage, spatial validity and model evaluation remain ML/data issues. Existing zero-sample regional evaluation is reported as **not evaluated**.
+- Offline feature leakage, spatial validity, and model evaluation remain ML/data issues. Existing zero-sample regional evaluation is reported as **not evaluated**.
 
 See [API reference](docs/api.md), [OpenAPI](docs/openapi.json), [handoff and decisions](docs/backend-handoff.md), and [verification](docs/verification.md).

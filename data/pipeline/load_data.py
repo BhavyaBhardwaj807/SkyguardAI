@@ -282,7 +282,9 @@ clean_df["month"] = (
 # 9. SAVE CSV
 # ============================================================
 
-output_file = "data/clean_stations.csv"
+from pathlib import Path
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+output_file = str(_REPO_ROOT / "data" / "clean_stations.csv") if (_REPO_ROOT / "data").exists() else "data/clean_stations.csv"
 
 clean_df.to_csv(
     output_file,

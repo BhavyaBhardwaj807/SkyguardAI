@@ -6,7 +6,7 @@ import {
   type Features,
   type Observation,
   type Station,
-} from "../../../contracts/index.js";
+} from "../../contracts/index.js";
 export type Frame = {
   observedAt: string;
   observations: Observation[];

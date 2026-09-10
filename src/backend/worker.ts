@@ -1,7 +1,7 @@
 import type { Database } from "./db/database.js";
 import type { Catalog } from "./modules/catalog.js";
 import { assess, type Predictor } from "./modules/detection.js";
-import type { Batch, Assessment } from "../../contracts/index.js";
+import type { Batch, Assessment } from "../contracts/index.js";
 import { proposeCorrections } from "./modules/corrections.js";
 import { Events } from "./events.js";
 export async function recover(db: Database, maxAttempts = 3) {

@@ -1,7 +1,7 @@
 .git
 node_modules
 .next
-src/app/backend/dist
+src/backend/dist
 .env
 .env.*
 !.env.example

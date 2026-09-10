@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { batchSchema, type Batch } from "../../../contracts/index.js";
+import { batchSchema, type Batch } from "../../contracts/index.js";
 import type { Database, Queryable } from "../db/database.js";
 export class HttpError extends Error {
   constructor(

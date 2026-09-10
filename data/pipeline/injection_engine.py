@@ -53,9 +53,12 @@ import pandas as pd
 # Configuration
 # --------------------------------------------------------------------------- #
 
-DEFAULT_INPUT_PATH = "data/clean_stations.csv"
-DEFAULT_OUTPUT_PATH = "data/injected_stations.csv"
-DEFAULT_EVENTS_LOG_PATH = "data/injection_events.csv"
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_DATA_DIR = _REPO_ROOT / "data" if (_REPO_ROOT / "data").exists() else Path("data")
+
+DEFAULT_INPUT_PATH = str(_DATA_DIR / "clean_stations.csv")
+DEFAULT_OUTPUT_PATH = str(_DATA_DIR / "injected_stations.csv")
+DEFAULT_EVENTS_LOG_PATH = str(_DATA_DIR / "injection_events.csv")
 DEFAULT_SEED = 42
 
 # WMO-style plausibility anchors (per-hour step thresholds). Injected

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Database } from "../db/database.js";
 import type { Catalog } from "./catalog.js";
 import { HttpError, ingestTx } from "./ingestion.js";
-import { batchSchema } from "../../../contracts/index.js";
+import { batchSchema } from "../../contracts/index.js";
 export async function createRun(
   db: Database,
   catalog: Catalog,

@@ -18,12 +18,11 @@
   },
   "include": [
     "next-env.d.ts",
-    "src/app/layout.tsx",
-    "src/app/page.tsx",
-    "src/app/frontend/**/*.tsx",
+    "src/app/**/*",
+    "src/components/**/*",
     "src/contracts/**/*.ts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "src/app/backend", "tests"]
+  "exclude": ["node_modules", "src/backend", "tests"]
 }

@@ -331,8 +331,11 @@ def run_qc(df):
 # ============================================================
 
 if __name__ == "__main__":
+    from pathlib import Path
+    _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+    _DATA_DIR = _REPO_ROOT / "data" if (_REPO_ROOT / "data").exists() else Path("data")
 
-    input_file = "data/clean_stations.csv"
+    input_file = str(_DATA_DIR / "clean_stations.csv")
 
     print("Loading dataset...")
 
@@ -387,7 +390,7 @@ if __name__ == "__main__":
     )
 
     # Save QC dataset
-    output_file = "data/qc_stations.csv"
+    output_file = str(_DATA_DIR / "qc_stations.csv")
 
     qc_df.to_csv(
         output_file,

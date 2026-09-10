@@ -54,11 +54,15 @@ class PredictRequest(BaseModel):
 @app.on_event("startup")
 def load_artifacts():
     global scaler, model, explainer, metadata, spatial_baselines
-    scaler = joblib.load('models/scaler.joblib')
-    model = joblib.load('models/isolation_forest.joblib')
-    explainer = joblib.load('models/explainer.joblib')
+    import os
+    base_dir = os.path.dirname(__file__)
+    models_dir = os.path.join(base_dir, 'models') if os.path.exists(os.path.join(base_dir, 'models')) else 'models'
+
+    scaler = joblib.load(os.path.join(models_dir, 'scaler.joblib'))
+    model = joblib.load(os.path.join(models_dir, 'isolation_forest.joblib'))
+    explainer = joblib.load(os.path.join(models_dir, 'explainer.joblib'))
     
-    with open('models/metadata.json', 'r') as f:
+    with open(os.path.join(models_dir, 'metadata.json'), 'r') as f:
         metadata = json.load(f)
     spatial_baselines = metadata.get('spatial_baselines', {})
 
