@@ -9,8 +9,10 @@ def main():
     print("==================================================")
     print("Loading test data from data/features.csv...")
     
+    import os
+    data_path = 'data/features.csv' if os.path.exists('data/features.csv') else '../data/features.csv'
     try:
-        df = pd.read_csv('../data/features.csv')
+        df = pd.read_csv(data_path)
     except Exception as e:
         print(f"Error loading data: {e}")
         return
