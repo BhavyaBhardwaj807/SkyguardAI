@@ -1,64 +1,83 @@
 "use client";
+
 import { MapContainer, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import StationMarker from "./StationMarker";
 
-export default function MapPanel({ stations, height = 280, interactive = false, showCaption = true }) {
-  const center = stations.length
-    ? [
-        stations.reduce((sum, s) => sum + s.lat, 0) / stations.length,
-        stations.reduce((sum, s) => sum + s.lon, 0) / stations.length,
-      ]
-    : [28.6, 77.2];
+export default function MapPanel({
+  stations = [],
+  selectedStationId,
+  onSelectStation,
+  height = "100%",
+}) {
+  const center = [28.68, 77.35];
 
   return (
-    <div>
-      <div style={{ height, borderRadius: "var(--radius)", overflow: "hidden", border: "1px solid var(--border)" }}>
-        <MapContainer
-          center={center}
-          zoom={9}
-          zoomControl={interactive}
-          dragging={interactive}
-          scrollWheelZoom={interactive}
-          doubleClickZoom={interactive}
-          style={{ height: "100%", width: "100%", background: "var(--bg)" }}
-        >
-          <TileLayer
-            attribution="&copy; OpenStreetMap contributors"
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          {stations.map((s) => (
-            <StationMarker key={s.station_id} station={s} />
-          ))}
-        </MapContainer>
-      </div>
-      {showCaption && (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: 12,
-            color: "var(--text-muted)",
-            marginTop: "var(--space-2)",
-          }}
-        >
-          <span>{stations.length} stations &middot; live network</span>
-          <span style={{ display: "flex", gap: 10 }}>
-            <LegendDot color="var(--status-normal)" label="Healthy" />
-            <LegendDot color="var(--status-warning)" label="Warning" />
-            <LegendDot color="var(--status-critical)" label="Critical" />
-          </span>
+    <div
+      style={{
+        height,
+        width: "100%",
+        borderRadius: "var(--radius)",
+        overflow: "hidden",
+        border: "1px solid var(--border)",
+        position: "relative",
+        background: "#0F151C",
+      }}
+    >
+      <MapContainer
+        center={center}
+        zoom={9}
+        scrollWheelZoom={true}
+        style={{ height: "100%", width: "100%", background: "#0B0F14" }}
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors'
+          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        />
+        {stations.map((s) => {
+          const sId = s.stationId || s.station_id;
+          return (
+            <StationMarker
+              key={sId}
+              station={s}
+              isSelected={sId === selectedStationId}
+              onClick={onSelectStation}
+            />
+          );
+        })}
+      </MapContainer>
+
+      {/* Map Legend Overlay */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: "12px",
+          left: "12px",
+          zIndex: 1000,
+          background: "rgba(19, 27, 36, 0.9)",
+          backdropFilter: "blur(4px)",
+          padding: "6px 10px",
+          borderRadius: "var(--radius-sm)",
+          border: "1px solid var(--border)",
+          fontSize: "11px",
+          display: "flex",
+          gap: "12px",
+          color: "var(--text-secondary)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+          <span className="status-dot normal" />
+          <span>Nominal ({stations.filter((s) => (s.status || "normal") === "normal").length})</span>
         </div>
-      )}
+        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+          <span className="status-dot warning" />
+          <span>Warning ({stations.filter((s) => s.status === "warning").length})</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+          <span className="status-dot critical" />
+          <span>Suspected Fault ({stations.filter((s) => s.status === "critical").length})</span>
+        </div>
+      </div>
     </div>
-  );
-}
-
-function LegendDot({ color, label }) {
-  return (
-    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-      <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, display: "inline-block" }} />
-      {label}
-    </span>
   );
 }

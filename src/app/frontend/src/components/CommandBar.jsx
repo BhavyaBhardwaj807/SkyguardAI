@@ -1,6 +1,7 @@
 "use client";
-import { Search, Download, RefreshCw } from "lucide-react";
+
 import { useState } from "react";
+import { IconSearch, IconDownload, IconRefresh } from "./Icons";
 
 export default function CommandBar({ onSearch, onExport, onRefresh }) {
   const [query, setQuery] = useState("");
@@ -8,7 +9,7 @@ export default function CommandBar({ onSearch, onExport, onRefresh }) {
 
   const handleRefresh = () => {
     setSpinning(true);
-    onRefresh && onRefresh();
+    if (onRefresh) onRefresh();
     setTimeout(() => setSpinning(false), 600);
   };
 
@@ -21,16 +22,17 @@ export default function CommandBar({ onSearch, onExport, onRefresh }) {
           gap: 6,
           background: "var(--surface-hover)",
           borderRadius: "var(--radius-sm)",
-          padding: "6px 10px",
+          padding: "4px 8px",
           minWidth: 180,
+          border: "1px solid var(--border)",
         }}
       >
-        <Search size={14} color="var(--text-dim)" />
+        <IconSearch size={13} color="var(--text-dim)" />
         <input
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
-            onSearch && onSearch(e.target.value);
+            if (onSearch) onSearch(e.target.value);
           }}
           placeholder="Search station ID..."
           style={{
@@ -38,32 +40,26 @@ export default function CommandBar({ onSearch, onExport, onRefresh }) {
             border: "none",
             outline: "none",
             color: "var(--text)",
-            fontSize: 13,
+            fontSize: 12,
             width: "100%",
+            fontFamily: "inherit",
           }}
         />
       </div>
-      <button onClick={onExport} style={iconButtonStyle} className="row-hover" aria-label="Export">
-        <Download size={14} />
+      <button onClick={onExport} className="btn" aria-label="Export">
+        <IconDownload size={13} />
         <span>Export</span>
       </button>
-      <button onClick={handleRefresh} style={iconButtonStyle} className="row-hover" aria-label="Refresh">
-        <RefreshCw size={14} style={{ transform: spinning ? "rotate(360deg)" : "none", transition: "transform 600ms ease" }} />
+      <button onClick={handleRefresh} className="btn" aria-label="Refresh">
+        <IconRefresh
+          size={13}
+          style={{
+            transform: spinning ? "rotate(360deg)" : "none",
+            transition: "transform 600ms ease",
+          }}
+        />
         <span>Refresh</span>
       </button>
     </div>
   );
 }
-
-const iconButtonStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  background: "transparent",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-sm)",
-  padding: "6px 10px",
-  fontSize: 13,
-  color: "var(--text-muted)",
-  cursor: "pointer",
-};

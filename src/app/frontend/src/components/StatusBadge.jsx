@@ -1,35 +1,61 @@
 "use client";
-const STATUS_MAP = {
-  normal: { label: "Normal", color: "var(--status-normal)", bg: "var(--status-normal-dim)" },
-  warning: { label: "Warning", color: "var(--status-warning)", bg: "var(--status-warning-dim)" },
-  critical: { label: "Critical", color: "var(--status-critical)", bg: "var(--status-critical-dim)" },
-  offline: { label: "Offline", color: "var(--status-offline)", bg: "var(--status-offline-dim)" },
+
+const VERDICT_MAP = {
+  normal: {
+    label: "NORMAL",
+    className: "badge-normal",
+    dotClass: "normal",
+  },
+  suspected_fault: {
+    label: "SUSPECTED FAULT",
+    className: "badge-critical",
+    dotClass: "critical",
+  },
+  critical: {
+    label: "CRITICAL",
+    className: "badge-critical",
+    dotClass: "critical",
+  },
+  suspected_drift: {
+    label: "DRIFT WARNING",
+    className: "badge-warning",
+    dotClass: "warning",
+  },
+  warning: {
+    label: "WARNING",
+    className: "badge-warning",
+    dotClass: "warning",
+  },
+  extreme_weather: {
+    label: "EXTREME WEATHER",
+    className: "badge-warning",
+    dotClass: "warning",
+  },
+  insufficient_data: {
+    label: "INSUFFICIENT DATA",
+    className: "badge-stale",
+    dotClass: "stale",
+  },
+  offline: {
+    label: "OFFLINE",
+    className: "badge-stale",
+    dotClass: "stale",
+  },
+  resolved: {
+    label: "RESOLVED",
+    className: "badge-normal",
+    dotClass: "normal",
+  },
 };
 
-export default function StatusBadge({ status }) {
-  const s = STATUS_MAP[status] || STATUS_MAP.offline;
+export default function StatusBadge({ status, verdict, showDot = true }) {
+  const key = (verdict || status || "normal").toLowerCase();
+  const config = VERDICT_MAP[key] || VERDICT_MAP.insufficient_data;
+
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "2px 8px",
-        borderRadius: "var(--radius-sm)",
-        fontFamily: "var(--font-data)",
-        fontSize: 11,
-        color: s.color,
-        background: s.bg,
-      }}
-    >
-      <span style={{ width: 6, height: 6, borderRadius: "50%", background: s.color }} />
-      {s.label}
+    <span className={`badge ${config.className}`}>
+      {showDot && <span className={`status-dot ${config.dotClass}`} />}
+      <span>{config.label}</span>
     </span>
   );
-}
-
-export function statusFromScore(severity) {
-  if (severity === "critical") return "critical";
-  if (severity === "warning") return "warning";
-  return "normal";
 }

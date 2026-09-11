@@ -1,30 +1,49 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
-import Sidebar from "../../components/Sidebar";
+import HeaderNav from "../../components/HeaderNav";
 
 export default function DashboardLayout({ children }) {
-  const pathname = usePathname();
-
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--bg)" }}>
-      <Sidebar />
-      <main style={{ flex: 1, padding: "var(--space-5)", overflowY: "auto", background: "var(--bg)", position: "relative" }}>
-        <div style={{ maxWidth: 1440, margin: "0 auto", paddingBottom: "var(--space-7)" }}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={pathname}
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
-        </div>
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        background: "var(--bg)",
+        color: "var(--text)",
+      }}
+    >
+      <HeaderNav />
+      <main
+        style={{
+          flex: 1,
+          padding: "var(--space-4) var(--space-5)",
+          maxWidth: "1440px",
+          width: "100%",
+          margin: "0 auto",
+        }}
+      >
+        {children}
       </main>
+      <footer
+        style={{
+          borderTop: "1px solid var(--border-subtle)",
+          padding: "10px 20px",
+          fontSize: "11px",
+          color: "var(--text-dim)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: "var(--bg-subtle)",
+        }}
+      >
+        <div>
+          SKYGUARD AI // Weather Data Quality Assurance System &middot; 6 Northern India AWS Nodes &middot; Scikit-learn Isolation Forest v2
+        </div>
+        <div>
+          Audited Correction Pipeline &middot; Raw observations are never mutated or replaced
+        </div>
+      </footer>
     </div>
   );
 }

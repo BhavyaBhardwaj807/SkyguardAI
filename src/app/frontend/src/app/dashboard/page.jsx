@@ -1,173 +1,397 @@
 "use client";
-"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import StatusBadge from "../../components/StatusBadge";
+import {
+  IconArrowRight,
+  IconPause,
+  IconPlay,
+  IconStep,
+} from "../../components/Icons";
+import { api } from "../../api/client";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { Server, AlertTriangle, Activity, ShieldAlert, ChevronRight } from "lucide-react";
 
-// Mock Data
-const temperatureData = [
-  { time: "12AM", temp: 18, normal: 25 },
-  { time: "2AM", temp: 17, normal: 24 },
-  { time: "4AM", temp: 16, normal: 23 },
-  { time: "6AM", temp: 17, normal: 22 },
-  { time: "8AM", temp: 21, normal: 25 },
-  { time: "10AM", temp: 25, normal: 27 },
-  { time: "12PM", temp: 29, normal: 28 },
-  { time: "2PM", temp: 31, normal: 29 },
-  { time: "4PM", temp: 33, normal: 30 }, // Spike
-  { time: "6PM", temp: 32, normal: 28 },
-  { time: "8PM", temp: 27, normal: 26 },
-  { time: "NOW", temp: 32, normal: 25 },
-];
+export default function DashboardOverview() {
+  const [stations, setStations] = useState([]);
+  const [anomalies, setAnomalies] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [replayState, setReplayState] = useState({ state: "running", scenario: "spike" });
+  const [isLoading, setIsLoading] = useState(true);
 
-const anomalyFeed = [
-  { station: "AWS_005", cause: "temperature sensor fault", conf: "88%", time: "2 min ago", level: "CRITICAL" },
-  { station: "AWS_003", cause: "possible drift", conf: "70%", time: "40 min ago", level: "WARNING" },
-];
+  useEffect(() => {
+    let mounted = true;
+    Promise.all([
+      api.getStations(),
+      api.getAssessments(),
+      api.getStationHistory("AWS005"),
+      api.getLatestRun(),
+    ]).then(([sData, aData, hData, rData]) => {
+      if (mounted) {
+        setStations(sData || []);
+        setAnomalies(aData || []);
+        setHistory(hData || []);
+        if (rData) setReplayState(rData);
+        setIsLoading(false);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
-export default function Overview() {
+  const handleToggleReplay = async () => {
+    const nextAction = replayState.state === "running" ? "pause" : "start";
+    setReplayState((prev) => ({ ...prev, state: nextAction === "start" ? "running" : "paused" }));
+    await api.controlRun("current", nextAction);
+  };
+
+  const handleStepReplay = async () => {
+    await api.controlRun("current", "step");
+  };
+
+  // Primary active incident requiring operator attention
+  const activeIncident = anomalies.find((a) => a.severity === "critical") || anomalies[0];
+
+  if (isLoading) {
+    return (
+      <div style={{ padding: "60px 20px", textAlign: "center", color: "var(--text-muted)", fontSize: "15px" }}>
+        Loading network status and telemetry...
+      </div>
+    );
+  }
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-2)" }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: "var(--text)" }}>Dashboard Overview</h1>
-      </div>
-
-      {/* Top 4 Metrics */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--space-4)" }}>
-        <StatCard title="Stations online" value="7" icon={Server} color="var(--purple)" trend="All nominal" />
-        <StatCard title="Active anomalies" value="2" icon={AlertTriangle} color="var(--orange)" trend="↑ 2 from last hour" isAlert />
-        <StatCard title="Critical stations" value="1" icon={ShieldAlert} color="#F87171" trend="Needs attention" isAlert />
-        <StatCard title="Network health" value="83%" icon={Activity} color="var(--cyan)" trend="↓ 5/7 healthy" />
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "var(--space-4)" }}>
-        
-        {/* Left Column: Temperature Trends */}
-        <div className="card" style={{ padding: "var(--space-5)", display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "var(--space-5)" }}>
-             <div>
-                <h2 style={{ fontSize: 13, fontWeight: 600, color: "var(--text-dim)", letterSpacing: 0.5, margin: "0 0 4px 0" }}>TEMPERATURE TRENDS</h2>
-                <div style={{ fontSize: 14, color: "var(--text-muted)" }}>AWS_005 • Last 24 hours</div>
-             </div>
-             <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--text-muted)" }}>
-               <div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 2, background: "var(--cyan)" }}/> Temperature</div>
-               <div style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 2, background: "var(--border)" }}/> Normal range</div>
-             </div>
-          </div>
-          
-          <div style={{ height: 260, width: "100%" }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={temperatureData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-soft)" />
-                <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "var(--text-muted)" }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "var(--text-muted)" }} tickFormatter={(val) => `${val}°`} domain={[14, 35]} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }} />
-                <Line type="monotone" dataKey="normal" stroke="var(--border)" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="temp" stroke="var(--cyan)" strokeWidth={3} dot={{ r: 4, fill: "var(--cyan)", strokeWidth: 0 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          
-          <div style={{ marginTop: "var(--space-4)", fontSize: 13, color: "#F87171", fontWeight: 500 }}>
-             AI DETECTION • AWS_005 • +8.4°C from expected • 94% probability
-          </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: "32px", paddingBottom: "32px" }}>
+      {/* Header with Replay Context */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+          flexWrap: "wrap",
+          gap: "16px",
+          borderBottom: "1px solid var(--border)",
+          paddingBottom: "16px",
+        }}
+      >
+        <div>
+          <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px" }}>
+            Network Overview
+          </h1>
+          <p style={{ fontSize: "14.5px", color: "var(--text-secondary)", margin: "4px 0 0 0" }}>
+            {stations.length} automated stations reporting across the Northern India regional network.
+          </p>
         </div>
 
-        {/* Right Column: AI Insight */}
-        <div className="card" style={{ padding: "var(--space-5)", background: "var(--surface)", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          <div style={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, background: "var(--gradient-overview)", filter: "blur(60px)", opacity: 0.6, borderRadius: "50%" }} />
-          
-          <div style={{ position: "relative", zIndex: 1, flex: 1 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-5)" }}>
-               <h2 style={{ fontSize: 12, fontWeight: 600, color: "var(--purple)", letterSpacing: 0.5, margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
-                  <ShieldAlert size={14} /> SKYGUARD AI INSIGHT
-               </h2>
-               <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Analyzed 2 min ago</div>
+        {/* Quiet Replay Controls */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            padding: "4px 10px",
+            borderRadius: "var(--radius-sm)",
+            fontSize: "13px",
+          }}
+        >
+          <span style={{ color: "var(--text-muted)" }}>Scenario:</span>
+          <span style={{ fontWeight: 600, color: "var(--text)" }}>
+            {replayState.scenario === "spike" ? "Temperature Spike" : replayState.scenario}
+          </span>
+          <span style={{ color: "var(--border)" }}>|</span>
+          <button
+            onClick={handleToggleReplay}
+            className="btn btn-ghost"
+            style={{ padding: "4px 8px", height: "26px", fontSize: "12.5px" }}
+          >
+            {replayState.state === "running" ? <IconPause size={12} /> : <IconPlay size={12} />}
+            <span>{replayState.state === "running" ? "Pause" : "Resume"}</span>
+          </button>
+          <button
+            onClick={handleStepReplay}
+            disabled={replayState.state === "running"}
+            className="btn btn-ghost"
+            style={{ padding: "4px 8px", height: "26px", fontSize: "12.5px" }}
+            title="Step one interval forward"
+          >
+            <IconStep size={12} />
+            <span>Step</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 3 Summary Metrics - Spacious and Uncluttered */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          gap: "16px",
+        }}
+      >
+        <div className="card" style={{ padding: "20px 24px" }}>
+          <div style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>
+            Stations Reporting
+          </div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginTop: "6px" }}>
+            <span className="data-mono" style={{ fontSize: "28px", fontWeight: 700, color: "var(--text)" }}>
+              {stations.length} of {stations.length}
+            </span>
+            <span style={{ fontSize: "13px", color: "var(--status-normal)" }}>online</span>
+          </div>
+          <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
+            AWS001 through AWS006 transmitting
+          </p>
+        </div>
+
+        <div className="card" style={{ padding: "20px 24px" }}>
+          <div style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>
+            Items Needing Attention
+          </div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginTop: "6px" }}>
+            <span className="data-mono" style={{ fontSize: "28px", fontWeight: 700, color: "var(--status-critical)" }}>
+              {anomalies.filter((a) => a.severity === "critical").length}
+            </span>
+            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>suspected fault</span>
+          </div>
+          <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
+            AWS005 thermistor spike &middot; 1 drift warning
+          </p>
+        </div>
+
+        <div className="card" style={{ padding: "20px 24px" }}>
+          <div style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>
+            Regional Mean Temperature
+          </div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginTop: "6px" }}>
+            <span className="data-mono" style={{ fontSize: "28px", fontWeight: 700, color: "var(--text)" }}>
+              25.8°C
+            </span>
+            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>expected ~25°C</span>
+          </div>
+          <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
+            Baseline diurnal variation within bounds
+          </p>
+        </div>
+      </div>
+
+      {/* Primary Actionable Incident Banner */}
+      {activeIncident && (
+        <div
+          className="card"
+          style={{
+            padding: "20px 24px",
+            borderLeft: "4px solid var(--status-critical)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "16px",
+          }}
+        >
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+              <span className="badge badge-critical">Attention Required</span>
+              <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>2 minutes ago</span>
             </div>
-            
-            <p style={{ fontSize: 14, lineHeight: 1.5, margin: "0 0 var(--space-5) 0", color: "var(--text)" }}>
-               <strong style={{ color: "#F87171" }}>AWS_005</strong> is showing an abnormal reading compared with its recent baseline.
+            <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text)" }}>
+              {activeIncident.stationName} ({activeIncident.stationId}) &mdash; Sudden +17.8°C spike reported
+            </div>
+            <p style={{ fontSize: "14px", color: "var(--text-secondary)", margin: "4px 0 0 0", maxWidth: "780px" }}>
+              Reported reading reached 42.7°C while neighboring stations AWS001 and AWS002 confirm normal 24–26°C conditions without pressure drops. Isolated as localized thermistor failure.
             </p>
+          </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-               <ProgressBar label="Anomaly probability" value="94%" color="#F87171" fill={94} />
-               <ProgressBar label="Model confidence" value="88%" color="var(--cyan)" fill={88} />
-               
-               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border-soft)", paddingTop: "var(--space-3)" }}>
-                  <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Deviation from baseline</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>+17.8°C</span>
-               </div>
-               
-               <div style={{ fontSize: 13 }}>
-                  <span style={{ color: "var(--text-muted)" }}>Likely cause: </span>
-                  <span style={{ fontWeight: 500, color: "var(--text)" }}>temperature sensor fault</span>
-               </div>
-            </div>
-            
-            <button style={{ marginTop: "var(--space-5)", background: "rgba(56,189,248,0.1)", color: "var(--cyan)", border: "none", borderRadius: 16, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", width: "max-content" }}>
-               View analysis
-            </button>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <Link
+              href={`/dashboard/stations/${activeIncident.stationId}`}
+              className="btn btn-primary"
+            >
+              <span>Inspect Station Telemetry</span>
+              <IconArrowRight size={14} />
+            </Link>
+            <Link
+              href="/dashboard/anomalies"
+              className="btn"
+            >
+              <span>View in Worklist</span>
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Main Analytical View: 24-Hour Diurnal Temperature Profile */}
+      <div className="card" style={{ padding: "24px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            marginBottom: "20px",
+            flexWrap: "wrap",
+            gap: "12px",
+          }}
+        >
+          <div>
+            <h2 style={{ fontSize: "17px", fontWeight: 600, color: "var(--text)" }}>
+              24-Hour Diurnal Temperature Profile
+            </h2>
+            <p style={{ fontSize: "13.5px", color: "var(--text-secondary)", margin: "2px 0 0 0" }}>
+              Comparing AWS005 against regional neighbor consensus.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", gap: "16px", fontSize: "13px" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ width: "12px", height: "2px", background: "var(--status-critical)" }} />
+              <span style={{ color: "var(--text)" }}>AWS005 (Observed)</span>
+            </span>
+            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ width: "12px", height: "2px", background: "var(--accent)" }} />
+              <span style={{ color: "var(--text-secondary)" }}>Regional Baseline</span>
+            </span>
           </div>
         </div>
 
+        <div style={{ height: "260px", width: "100%" }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={history} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="2 2" stroke="var(--border-subtle)" vertical={false} />
+              <XAxis
+                dataKey="time"
+                tick={{ fontSize: 11, fill: "var(--text-muted)" }}
+                axisLine={{ stroke: "var(--border)" }}
+                tickLine={false}
+              />
+              <YAxis
+                domain={[15, 45]}
+                tick={{ fontSize: 11, fill: "var(--text-muted)" }}
+                axisLine={{ stroke: "var(--border)" }}
+                tickLine={false}
+                tickFormatter={(v) => `${v}°`}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "var(--surface-raised)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  color: "var(--text)",
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="baseline"
+                name="Regional Baseline"
+                stroke="var(--accent)"
+                strokeWidth={1.8}
+                dot={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="AWS005"
+                name="AWS005 Observed"
+                stroke="var(--status-critical)"
+                strokeWidth={2}
+                dot={{ r: 2.5, fill: "var(--status-critical)" }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
-      {/* Bottom: Anomaly Feed */}
-      <div className="card" style={{ padding: "var(--space-5)" }}>
-         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-4)" }}>
-             <h2 style={{ fontSize: 13, fontWeight: 600, color: "var(--text-dim)", letterSpacing: 0.5, margin: 0 }}>AI ANOMALY FEED</h2>
-             <div style={{ fontSize: 12, color: "#F87171", fontWeight: 600 }}>2 ACTIVE</div>
-         </div>
-         
-         <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-            {anomalyFeed.map((item, idx) => (
-              <div key={idx} style={{ display: "flex", alignItems: "flex-start", padding: "var(--space-4) 0", borderBottom: idx !== anomalyFeed.length - 1 ? "1px solid var(--border-soft)" : "none", borderLeft: `3px solid ${item.level === 'CRITICAL' ? '#F87171' : 'var(--orange)'}`, paddingLeft: 16 }}>
-                 <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 11, color: item.level === 'CRITICAL' ? '#F87171' : 'var(--orange)', fontWeight: 600, marginBottom: 4 }}>{item.level}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", marginBottom: 2 }}>{item.station}</div>
-                    <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 8 }}>{item.cause}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 4, color: item.level === 'CRITICAL' ? '#F87171' : 'var(--orange)', fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
-                       Investigate <ChevronRight size={14} />
-                    </div>
-                 </div>
-                 <div style={{ textAlign: "right", display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Confidence <span style={{ fontWeight: 600, color: "var(--text)" }}>{item.conf}</span></div>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Detected <span style={{ color: "var(--text)" }}>{item.time}</span></div>
-                 </div>
-              </div>
-            ))}
-         </div>
-      </div>
-    </div>
-  );
-}
+      {/* Clean Station Status Table */}
+      <div className="card" style={{ overflow: "hidden" }}>
+        <div
+          style={{
+            padding: "16px 20px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text)" }}>
+              Regional Stations Status
+            </h3>
+            <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "2px 0 0 0" }}>
+              Latest observation snapshot across all 6 monitoring nodes.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/stations"
+            style={{ fontSize: "13.5px", color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}
+          >
+            View station directory &rarr;
+          </Link>
+        </div>
 
-function StatCard({ title, value, icon: Icon, color, trend, isAlert }) {
-  return (
-    <div className="card" style={{ padding: "var(--space-4)", display: "flex", flexDirection: "column", gap: 12 }}>
-       <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)" }}>
-          <Icon size={16} />
-          <span style={{ fontSize: 13 }}>{title}</span>
-       </div>
-       <div style={{ fontSize: 32, fontWeight: 700, color: isAlert ? color : "var(--text)" }}>
-          {value}
-       </div>
-       <div style={{ fontSize: 12, color: isAlert ? color : "var(--text-muted)" }}>
-          {trend}
-       </div>
-    </div>
-  );
-}
+        <div className="table-container" style={{ border: "none" }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Station</th>
+                <th>Temperature</th>
+                <th>Humidity</th>
+                <th>Pressure</th>
+                <th>Status</th>
+                <th style={{ textAlign: "right" }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stations.map((st) => {
+                const sId = st.stationId || st.station_id;
+                const r = st.reading || {};
+                const temp = r.temperatureC ?? r.temperature ?? "—";
+                const hum = r.relativeHumidityPct ?? r.humidity ?? "—";
+                const pres = r.pressureHpa ?? r.pressure ?? "—";
 
-function ProgressBar({ label, value, fill, color }) {
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
-        <span style={{ color: "var(--text-muted)" }}>{label}</span>
-        <span style={{ fontWeight: 600, color: "var(--text)" }}>{value}</span>
-      </div>
-      <div style={{ width: "100%", height: 6, background: "var(--border-soft)", borderRadius: 3, overflow: "hidden" }}>
-        <div style={{ width: `${fill}%`, height: "100%", background: color, borderRadius: 3 }} />
+                return (
+                  <tr key={sId}>
+                    <td>
+                      <div style={{ fontWeight: 600, color: "var(--text)" }}>{st.name}</div>
+                      <div className="data-mono" style={{ fontSize: "12px", color: "var(--text-muted)" }}>{sId}</div>
+                    </td>
+                    <td
+                      className="data-mono"
+                      style={{
+                        fontWeight: sId === "AWS005" ? 700 : 400,
+                        color: sId === "AWS005" ? "var(--status-critical)" : "var(--text)",
+                      }}
+                    >
+                      {typeof temp === "number" ? temp.toFixed(1) + "°C" : temp}
+                    </td>
+                    <td
+                      className="data-mono"
+                      style={{
+                        color: sId === "AWS003" ? "var(--status-warning)" : "var(--text)",
+                      }}
+                    >
+                      {typeof hum === "number" ? hum.toFixed(0) + "%" : hum}
+                    </td>
+                    <td className="data-mono">
+                      {typeof pres === "number" ? pres.toFixed(1) + " hPa" : pres}
+                    </td>
+                    <td>
+                      <StatusBadge verdict={st.verdict || st.status} />
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <Link
+                        href={`/dashboard/stations/${sId}`}
+                        style={{ color: "var(--accent)", textDecoration: "none", fontSize: "13px", fontWeight: 500 }}
+                      >
+                        Inspect &rarr;
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

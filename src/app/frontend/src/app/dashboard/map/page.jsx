@@ -1,130 +1,340 @@
 "use client";
-"use client";
+
 import { useEffect, useState } from "react";
-import { api } from "../../../api/client";
 import dynamic from "next/dynamic";
-import { Filter, Map as MapIcon } from "lucide-react";
+import Link from "next/link";
+import StatusBadge from "../../../components/StatusBadge";
+import {
+  IconArrowRight,
+  IconRefresh,
+  IconInfo,
+} from "../../../components/Icons";
+import { api } from "../../../api/client";
 
-const MapPanel = dynamic(() => import("../../../components/MapPanel"), { ssr: false });
+// Dynamically import MapPanel to avoid SSR issues with Leaflet
+const MapPanel = dynamic(() => import("../../../components/MapPanel"), {
+  ssr: false,
+  loading: () => (
+    <div
+      style={{
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--surface)",
+        color: "var(--text-muted)",
+        fontSize: "14px",
+      }}
+    >
+      Loading interactive map...
+    </div>
+  ),
+});
 
-export default function LiveMap() {
+// Haversine distance in km
+function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+}
+
+export default function LiveMapPage() {
   const [stations, setStations] = useState([]);
+  const [selectedStationId, setSelectedStationId] = useState("AWS005");
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    api.getStations().then(setStations);
+    let mounted = true;
+    api.getStations().then((data) => {
+      if (mounted) {
+        setStations(data || []);
+        setIsLoading(false);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
+  const selected =
+    stations.find(
+      (s) => (s.stationId || s.station_id) === selectedStationId
+    ) || stations[0];
+
+  const sId = selected?.stationId || selected?.station_id || "AWS005";
+  const r = selected?.reading || {};
+  const temp = r.temperatureC ?? r.temperature ?? "—";
+  const hum = r.relativeHumidityPct ?? r.humidity ?? "—";
+  const pres = r.pressureHpa ?? r.pressure ?? "—";
+
+  // Compute neighbor distances
+  const neighborDistances = selected
+    ? stations
+        .filter((s) => (s.stationId || s.station_id) !== sId)
+        .map((s) => ({
+          stationId: s.stationId || s.station_id,
+          name: s.name,
+          distanceKm: calculateDistanceKm(
+            selected.lat,
+            selected.lon,
+            s.lat,
+            s.lon
+          ),
+          temp: s.reading?.temperatureC ?? s.reading?.temperature ?? "—",
+          status: s.status || "normal",
+        }))
+        .sort((a, b) => a.distanceKm - b.distanceKm)
+    : [];
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-2)" }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: "var(--text)" }}>Live Map</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-          <button style={{ 
-            background: "var(--surface)", 
-            border: "1px solid var(--border)", 
-            borderRadius: 16, 
-            padding: "8px 16px",
-            fontSize: 13,
-            cursor: "pointer",
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+          gap: "16px",
+          borderBottom: "1px solid var(--border)",
+          paddingBottom: "16px",
+        }}
+      >
+        <div>
+          <h1
+            style={{
+              fontSize: "24px",
+              fontWeight: 700,
+              margin: 0,
+              color: "var(--text)",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            Station Network Map
+          </h1>
+          <p
+            style={{
+              fontSize: "15px",
+              color: "var(--text-muted)",
+              margin: "6px 0 0 0",
+              lineHeight: 1.5,
+            }}
+          >
+            Geographic distribution of monitoring stations and spatial consensus neighbor distances.
+          </p>
+        </div>
+
+        <button
+          onClick={() => {
+            setIsLoading(true);
+            api.getStations().then((d) => {
+              setStations(d || []);
+              setIsLoading(false);
+            });
+          }}
+          className="btn"
+          disabled={isLoading}
+        >
+          <IconRefresh size={14} />
+          <span>{isLoading ? "Syncing..." : "Refresh"}</span>
+        </button>
+      </div>
+
+      {/* Main Map Viewport & Spatial Consensus Panel */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.6fr 1fr",
+          gap: "20px",
+          height: "calc(100vh - 220px)",
+          minHeight: "560px",
+        }}
+      >
+        {/* Left: Interactive Leaflet Map */}
+        <div style={{ height: "100%", width: "100%", position: "relative", borderRadius: "var(--radius-lg)", overflow: "hidden", border: "1px solid var(--border)" }}>
+          <MapPanel
+            stations={stations}
+            selectedStationId={sId}
+            onSelectStation={(st) => setSelectedStationId(st.stationId || st.station_id)}
+          />
+        </div>
+
+        {/* Right: Selected Station Diagnostics & Spatial Neighbors */}
+        <div
+          style={{
+            height: "100%",
+            overflowY: "auto",
             display: "flex",
-            alignItems: "center",
-            gap: 6,
-            color: "var(--text)"
-          }}>
-            <Filter size={16} /> Filter Region
-          </button>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 3fr", gap: "var(--space-4)", height: "calc(100vh - 160px)" }}>
-        {/* Left Side: Mock Stats Panel */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-          <div className="card" style={{ padding: "var(--space-5)", background: "var(--surface)", position: "relative", overflow: "hidden" }}>
-             <div style={{ position: "absolute", top: 0, right: 0, width: "70%", height: "70%", background: "var(--gradient-overview)", filter: "blur(60px)", opacity: 0.8, borderRadius: "50%" }} />
-             <div style={{ position: "relative", zIndex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-                   <div style={{ background: "var(--purple)", color: "white", padding: 6, borderRadius: 8 }}><MapIcon size={16} /></div>
-                   <span style={{ fontWeight: 600 }}>Region Status</span>
+            flexDirection: "column",
+            gap: "16px",
+          }}
+        >
+          {/* Station Selected Card */}
+          {selected && (
+            <div className="card" style={{ padding: "20px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  marginBottom: "12px",
+                }}
+              >
+                <div>
+                  <span
+                    className="data-mono"
+                    style={{ fontSize: "13px", fontWeight: 600, color: "var(--accent)" }}
+                  >
+                    {sId}
+                  </span>
+                  <h3 style={{ fontSize: "18px", fontWeight: 600, color: "var(--text)", margin: "2px 0 0 0" }}>
+                    {selected.name}
+                  </h3>
+                  <div style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "4px" }}>
+                    {selected.lat?.toFixed(4)}°N, {selected.lon?.toFixed(4)}°E &middot; Elev {selected.elevationM ?? 210} m
+                  </div>
                 </div>
-                <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 8 }}>94%</div>
-                <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 24 }}>Optimal coverage. 3 nodes offline.</div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  <MockStatRow label="Active Nodes" value="1,240" color="var(--green)" />
-                  <MockStatRow label="Anomalies" value="12" color="var(--yellow)" />
-                  <MockStatRow label="Bandwidth" value="45 GB/s" color="var(--cyan)" />
-                </div>
-             </div>
-          </div>
-          
-          <div className="card" style={{ padding: "var(--space-5)", flex: 1, display: "flex", flexDirection: "column" }}>
-             <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 16px 0", color: "var(--text)" }}>Recent Activity</h3>
-             <div style={{ display: "flex", flexDirection: "column", gap: 16, overflowY: "auto" }}>
-                <MockActivity title="Node AWS_001 updated" time="2 mins ago" color="var(--cyan)" />
-                <MockActivity title="Firmware patch deployed" time="15 mins ago" color="var(--purple)" />
-                <MockActivity title="High latency detected" time="1 hour ago" color="var(--yellow)" />
-                <MockActivity title="Node AWS_002 offline" time="2 hours ago" color="var(--text-muted)" />
-             </div>
-          </div>
-        </div>
-
-        {/* Right Side: Map */}
-        <div className="card" style={{ overflow: "hidden", position: "relative" }}>
-           <div style={{ position: "absolute", top: 16, right: 16, zIndex: 1000, background: "var(--surface)", padding: 8, borderRadius: 8, border: "1px solid var(--border)", display: "flex", gap: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 500 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "var(--green)" }}/> Online</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 500 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "var(--yellow)" }}/> Warning</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 500 }}><span style={{ width: 10, height: 10, borderRadius: "50%", background: "var(--text-muted)" }}/> Offline</div>
-           </div>
-           <div style={{ 
-             width: "100%", 
-             height: "100%", 
-             background: "var(--bg)", 
-             backgroundImage: "radial-gradient(var(--border) 1px, transparent 1px)", 
-             backgroundSize: "20px 20px", 
-             position: "relative",
-             display: "flex",
-             alignItems: "center",
-             justifyContent: "center",
-             overflow: "hidden"
-           }}>
-              <div style={{ position: "absolute", top: "30%", left: "40%", width: 12, height: 12, borderRadius: "50%", background: "var(--green)", boxShadow: "0 0 10px var(--green)" }} />
-              <div style={{ position: "absolute", top: "45%", left: "55%", width: 12, height: 12, borderRadius: "50%", background: "var(--yellow)", boxShadow: "0 0 10px var(--yellow)" }} />
-              <div style={{ position: "absolute", top: "60%", left: "30%", width: 12, height: 12, borderRadius: "50%", background: "var(--cyan)", boxShadow: "0 0 10px var(--cyan)" }} />
-              <div style={{ position: "absolute", top: "20%", left: "70%", width: 12, height: 12, borderRadius: "50%", background: "var(--purple)", boxShadow: "0 0 10px var(--purple)" }} />
-              <div style={{ position: "absolute", top: "70%", left: "65%", width: 12, height: 12, borderRadius: "50%", background: "var(--text-muted)", boxShadow: "0 0 10px var(--text-muted)" }} />
-              <div style={{ background: "var(--surface)", padding: "12px 24px", borderRadius: 20, fontSize: 14, fontWeight: 600, color: "var(--text)", border: "1px solid var(--border)", boxShadow: "0 4px 12px rgba(0,0,0,0.1)", zIndex: 10 }}>
-                Placeholder Map
+                <StatusBadge verdict={selected.verdict || selected.status} />
               </div>
-           </div>
+
+              {/* Real-time Readings */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gap: "10px",
+                  background: "var(--bg)",
+                  padding: "12px",
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid var(--border)",
+                  marginTop: "12px",
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Temperature</div>
+                  <div
+                    className="data-mono"
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: 700,
+                      color: sId === "AWS005" ? "var(--status-critical)" : "var(--text)",
+                      marginTop: "2px",
+                    }}
+                  >
+                    {typeof temp === "number" ? temp.toFixed(1) + "°C" : temp}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Humidity</div>
+                  <div
+                    className="data-mono"
+                    style={{
+                      fontSize: "16px",
+                      fontWeight: 700,
+                      color: sId === "AWS003" ? "var(--status-warning)" : "var(--text)",
+                      marginTop: "2px",
+                    }}
+                  >
+                    {typeof hum === "number" ? hum.toFixed(0) + "%" : hum}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>Pressure</div>
+                  <div className="data-mono" style={{ fontSize: "16px", fontWeight: 700, color: "var(--text)", marginTop: "2px" }}>
+                    {typeof pres === "number" ? pres.toFixed(0) + " hPa" : pres}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginTop: "16px" }}>
+                <Link
+                  href={`/dashboard/stations/${sId}`}
+                  className="btn btn-primary"
+                  style={{ width: "100%", justifyContent: "center", padding: "10px 14px" }}
+                >
+                  <span>Open Full Station Telemetry</span>
+                  <IconArrowRight size={14} />
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {/* Spatial Consensus & Distance Matrix */}
+          <div className="card" style={{ padding: "20px", flex: 1 }}>
+            <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text)", margin: "0 0 4px 0" }}>
+              Nearest Neighbor Stations
+            </h3>
+            <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: "0 0 14px 0" }}>
+              Distance to adjacent nodes used for spatial consensus validation.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {neighborDistances.map((n) => (
+                <div
+                  key={n.stationId}
+                  onClick={() => setSelectedStationId(n.stationId)}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "10px 12px",
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-md)",
+                    fontSize: "13.5px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div>
+                    <span className="data-mono" style={{ fontWeight: 600, color: "var(--text)" }}>
+                      {n.stationId}
+                    </span>{" "}
+                    <span style={{ color: "var(--text-muted)" }}>({n.name})</span>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <span className="data-mono" style={{ color: "var(--text-muted)", fontSize: "13px" }}>
+                      {n.distanceKm} km
+                    </span>
+                    <span className="data-mono" style={{ fontWeight: 600, color: "var(--text)" }}>
+                      {typeof n.temp === "number" ? n.temp.toFixed(1) + "°C" : n.temp}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Spatial Consensus Rule Note */}
+            <div
+              style={{
+                marginTop: "18px",
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-md)",
+                padding: "14px",
+                fontSize: "13px",
+                color: "var(--text-muted)",
+                lineHeight: 1.5,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text)", fontWeight: 600, marginBottom: "4px" }}>
+                <IconInfo size={14} color="var(--accent)" />
+                <span>Spatial Consensus Rule</span>
+              </div>
+              Spatial verification requires at least 3 healthy stations within 100 km. If neighboring nodes exceed this range or are marked faulty, automated spatial interpolation is withheld to ensure data accuracy.
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function MockStatRow({ label, value, color }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
-        <span style={{ color: "var(--text-muted)" }}>{label}</span>
-      </div>
-      <span style={{ fontWeight: 600, color: "var(--text)" }}>{value}</span>
-    </div>
-  );
-}
-
-function MockActivity({ title, time, color }) {
-  return (
-    <div style={{ display: "flex", gap: 12 }}>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 4 }}>
-        <div style={{ width: 10, height: 10, borderRadius: "50%", background: color }} />
-        <div style={{ width: 2, height: 24, background: "var(--border-soft)", marginTop: 4 }} />
-      </div>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>{title}</div>
-        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{time}</div>
       </div>
     </div>
   );

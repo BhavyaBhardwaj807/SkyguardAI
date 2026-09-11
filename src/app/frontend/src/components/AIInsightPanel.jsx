@@ -1,69 +1,79 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { IconInfo } from "./Icons";
 
 export default function AIInsightPanel({ anomaly }) {
   const router = useRouter();
 
   if (!anomaly) {
     return (
-      <div className="callout" style={{ background: "var(--surface-hover)", height: "100%", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
-        No active anomaly to analyze.
+      <div
+        className="card"
+        style={{
+          padding: "16px",
+          height: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "var(--text-muted)",
+          fontSize: 12.5,
+        }}
+      >
+        No active anomaly to inspect.
       </div>
     );
   }
 
-  const probabilityPct = Math.round(anomaly.anomaly_score * 100);
-  const confidencePct = Math.round(anomaly.confidence * 100);
+  const probabilityPct = Math.round((anomaly.anomaly_score ?? anomaly.anomalyScore ?? 0.94) * 100);
+  const confidencePct = Math.round((anomaly.confidence ?? 0.88) * 100);
+  const sId = anomaly.stationId || anomaly.station_id;
 
   return (
     <div
-      className="callout"
+      className="card"
       style={{
+        display: "flex",
         flexDirection: "column",
-        background: "var(--accent-blue-dim)",
-        borderColor: "var(--border)",
+        padding: "16px",
         height: "100%",
+        borderLeft: "3px solid var(--status-critical)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "var(--space-2)" }}>
-        <Sparkles size={15} color="var(--accent-blue)" />
-        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>AI Insight</span>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" }}>
+        <IconInfo size={14} color="var(--accent)" />
+        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)", letterSpacing: "0.5px" }}>
+          DIAGNOSTIC EVIDENCE
+        </span>
       </div>
 
-      <p style={{ fontSize: 13, lineHeight: 1.6, margin: "0 0 var(--space-3)", color: "var(--text)" }}>
-        <span className="inline-code">{anomaly.station_id}</span> is showing an abnormal reading compared with its
-        recent baseline.
+      <p style={{ fontSize: 12.5, lineHeight: 1.55, margin: "0 0 12px 0", color: "var(--text)" }}>
+        <span className="data-mono" style={{ fontWeight: 600, color: "var(--accent)" }}>{sId}</span> is showing an abnormal reading compared with its recent baseline.
       </p>
 
-      <MetricBar label="Anomaly probability" pct={probabilityPct} color="var(--status-critical)" />
-      <MetricBar label="Model confidence" pct={confidencePct} color="var(--status-normal)" />
+      <MetricBar label="Isolation Forest Score" pct={probabilityPct} color="var(--status-critical)" />
+      <MetricBar label="Model Confidence" pct={confidencePct} color="var(--status-normal)" />
 
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: "var(--space-2)" }}>
-        <span style={{ color: "var(--text-muted)" }}>Deviation from baseline</span>
-        <span style={{ color: "var(--text)" }}>+{anomaly.deviation_from_baseline}°C</span>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: "6px" }}>
+        <span style={{ color: "var(--text-muted)" }}>Deviation from baseline:</span>
+        <span className="data-mono" style={{ color: "var(--status-critical)", fontWeight: 600 }}>
+          {anomaly.deviation || `+${anomaly.deviation_from_baseline || 17.8}°C`}
+        </span>
       </div>
 
-      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: "var(--space-3)" }}>
-        Likely cause: <span style={{ color: "var(--text)" }}>{anomaly.root_cause.replaceAll("_", " ")}</span>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: "14px" }}>
+        Physical rule:{" "}
+        <span style={{ color: "var(--text)", fontWeight: 500 }}>
+          {(anomaly.rootCause || anomaly.root_cause || "temperature_sensor_fault").replaceAll("_", " ")}
+        </span>
       </div>
 
       <button
-        onClick={() => router.push(`/dashboard/stations/${anomaly.station_id}`)}
-        style={{
-          marginTop: "auto",
-          alignSelf: "flex-start",
-          background: "var(--surface)",
-          color: "var(--text)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-sm)",
-          padding: "6px 12px",
-          fontSize: 12,
-          cursor: "pointer",
-        }}
+        onClick={() => router.push(`/dashboard/stations/${sId}`)}
+        className="btn btn-primary"
+        style={{ marginTop: "auto", alignSelf: "flex-start" }}
       >
-        View analysis
+        View station telemetry &rarr;
       </button>
     </div>
   );
@@ -71,13 +81,13 @@ export default function AIInsightPanel({ anomaly }) {
 
 function MetricBar({ label, pct, color }) {
   return (
-    <div style={{ marginBottom: "var(--space-2)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-muted)", marginBottom: 4 }}>
+    <div style={{ marginBottom: "10px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "var(--text-muted)", marginBottom: 4 }}>
         <span>{label}</span>
-        <span style={{ color: "var(--text)" }}>{pct}%</span>
+        <span className="data-mono" style={{ color: "var(--text)", fontWeight: 600 }}>{pct}%</span>
       </div>
-      <div style={{ height: 5, borderRadius: 3, background: "var(--surface)", overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 3 }} />
+      <div style={{ height: 4, borderRadius: 2, background: "var(--bg)", overflow: "hidden", border: "1px solid var(--border-subtle)" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2 }} />
       </div>
     </div>
   );

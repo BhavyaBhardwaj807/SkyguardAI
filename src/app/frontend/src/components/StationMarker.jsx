@@ -1,60 +1,66 @@
 "use client";
+
 import { Marker, Tooltip } from "react-leaflet";
 import L from "leaflet";
-import { AlertTriangle } from "lucide-react";
 
-const COLORS = {
-  normal: "#0f7b6c",
-  warning: "#d9730d",
-  critical: "#e03e3e",
-  offline: "#9b9a97",
+const STATUS_COLORS = {
+  normal: "#10B981",
+  warning: "#F59E0B",
+  critical: "#EF4444",
+  offline: "#64748B",
 };
 
-function buildIcon(status) {
-  const color = COLORS[status] || COLORS.offline;
-  const html =
-    "<div style=\"width:10px;height:10px;border-radius:50%;background:" +
-    color +
-    ";border:2px solid #ffffff;box-shadow:0 0 0 1px " +
-    color +
-    "40;\"></div>";
+function buildDivIcon(status, isSelected) {
+  const color = STATUS_COLORS[status] || STATUS_COLORS.offline;
+  const ringSize = isSelected ? 18 : 12;
+  const halo = isSelected ? `box-shadow: 0 0 0 4px ${color}33, 0 2px 8px rgba(0,0,0,0.6);` : `box-shadow: 0 0 0 2px rgba(11,15,20,0.9);`;
+
+  const html = `
+    <div style="
+      width: ${ringSize}px;
+      height: ${ringSize}px;
+      border-radius: 50%;
+      background: ${color};
+      border: 2px solid #FFFFFF;
+      ${halo}
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    "></div>
+  `;
+
   return L.divIcon({
     html,
-    className: "map-marker-wrapper",
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    className: "custom-station-pin",
+    iconSize: [ringSize, ringSize],
+    iconAnchor: [ringSize / 2, ringSize / 2],
   });
 }
 
-const ICONS = {
-  normal: buildIcon("normal"),
-  warning: buildIcon("warning"),
-  critical: buildIcon("critical"),
-  offline: buildIcon("offline"),
-};
-
-export default function StationMarker({ station }) {
-  const icon = ICONS[station.status] || ICONS.offline;
-  const r = station.reading;
+export default function StationMarker({ station, isSelected, onClick }) {
+  const status = station.status || "normal";
+  const icon = buildDivIcon(status, isSelected);
+  const r = station.reading || {};
+  const sId = station.stationId || station.station_id;
 
   return (
-    <Marker position={[station.lat, station.lon]} icon={icon}>
-      <Tooltip direction="top" offset={[0, -8]} opacity={1}>
-        <div style={{ fontSize: 12, minWidth: 140 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>{station.station_id}</div>
-          {r && (
-            <>
-              <div>Temperature: {r.temperature}°C</div>
-              <div>Humidity: {r.humidity}%</div>
-              <div>Pressure: {r.pressure} hPa</div>
-            </>
-          )}
-          {station.status !== "normal" && (
-            <div style={{ marginTop: 4, color: station.status === "critical" ? "#e03e3e" : "#d9730d", display: "flex", alignItems: "center", gap: 4 }}>
-              <AlertTriangle size={12} />
-              {station.status === "critical" ? "Critical anomaly" : "Warning"}
-            </div>
-          )}
+    <Marker
+      position={[station.lat, station.lon]}
+      icon={icon}
+      eventHandlers={{
+        click: () => onClick && onClick(station),
+      }}
+    >
+      <Tooltip direction="top" offset={[0, -10]} opacity={0.95}>
+        <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: "#0B0F14", padding: "2px" }}>
+          <div style={{ fontWeight: 700, fontFamily: "monospace" }}>{sId} &ndash; {station.name}</div>
+          <div style={{ marginTop: 3 }}>
+            Temp: <strong>{r.temperatureC ?? r.temperature ?? "—"}°C</strong> &middot; Hum: <strong>{r.relativeHumidityPct ?? r.humidity ?? "—"}%</strong>
+          </div>
+          <div style={{ color: status === "critical" ? "#EF4444" : status === "warning" ? "#F59E0B" : "#10B981", fontWeight: 600, marginTop: 2 }}>
+            Verdict: {status.toUpperCase()}
+          </div>
         </div>
       </Tooltip>
     </Marker>
