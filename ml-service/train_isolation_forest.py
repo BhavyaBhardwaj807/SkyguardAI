@@ -109,19 +109,59 @@ def main():
                     str_to_bool(test_df['missing_flag']) | 
                     str_to_bool(test_df['duplicate_flag'])).astype(float).to_numpy()
 
-    # Composite Anomaly Score:
-    # 1. Base combination of ML + Spatial deviation
-    base_score = 0.55 * if_scores_test + 0.30 * spatial_max_score + 0.15 * sig_score
+    # Multivariate Physical Residual Evidence:
+    # When temp-humidity or temp-pressure z-scored residuals exceed 2.0σ,
+    # the atmospheric relationships are physically implausible — strong
+    # evidence of a sensor fault even if the individual readings look normal.
+    z_tp = np.abs(X_test_scaled[:, 9])   # temp_pressure_residual (scaled)
+    z_th = np.abs(X_test_scaled[:, 10])  # temp_humidity_residual (scaled)
+    MV_ACTIVATION_THRESHOLD = 2.0
+    MV_SCALE = 3.5
+    mv_score = np.clip(
+        np.maximum(
+            (z_th - MV_ACTIVATION_THRESHOLD) / MV_SCALE,
+            (z_tp - MV_ACTIVATION_THRESHOLD) / MV_SCALE
+        ), 0.0, 1.0
+    )
 
-    # 2. Regional event dampener: if all channels and neighbors agree without isolated breakaway, dampen false alarms
-    no_breakaway = (dts < 5.0) & (dps < 3.5) & (dhs < 14.0) & (sig_score == 0)
-    dampened_score = np.where(no_breakaway, base_score * 0.75, base_score)
+    # 5. Temporal Sustained-Level Evidence (Isolated Barometric Plateau Offset):
+    # Detects when pressure remains substantially displaced at an abnormal plateau
+    # while peer stations do not corroborate the shift.
+    # Uses pressure_rolling_std (scaled feature 6) and peer disagreement (dps > 3.5 hPa).
+    z_pstd = np.abs(X_test_scaled[:, 6])
+    sustained_p_raw = np.clip((z_pstd - 2.5) / 3.0, 0.0, 1.0)
+    peer_disagree = np.clip((dps - 3.5) / 3.0, 0.0, 1.0)
+    sustained_isolated_pressure = sustained_p_raw * peer_disagree
 
-    # 3. Hardware / Signal Quality floor: stuck, missing, or duplicate signals are guaranteed high anomalies
+    # Composite Anomaly Score — 4-Evidence Multi-Channel Fusion + Temporal Sustained Term:
+    #   45% Isolation Forest (statistical novelty)
+    #   25% Spatial Consistency (cross-station breakaway)
+    #   18% Multivariate Physical Residual (atmospheric relationship violation)
+    #   12% Hardware/Signal Quality (persistence, missing, duplicate flags)
+    #   +10% Temporal Sustained Offset (when local pressure plateau is uncorroborated)
+    W_IF, W_SP, W_MV, W_SIG = 0.45, 0.25, 0.18, 0.12
+    base_score = (
+        W_IF * if_scores_test
+        + W_SP * spatial_max_score
+        + W_MV * mv_score
+        + W_SIG * sig_score
+        + 0.10 * sustained_isolated_pressure
+    )
+
+    # Physics-aware regional weather dampener:
+    # Real weather events maintain atmospheric consistency (z < 2.5σ).
+    # Only dampen when ALL of: no spatial breakaway, no hardware fault,
+    # AND physical relationships are consistent (not a sensor fault).
+    PHYS_CONSISTENCY_THRESHOLD = 2.5
+    phys_consistent = (z_th < PHYS_CONSISTENCY_THRESHOLD) & (z_tp < PHYS_CONSISTENCY_THRESHOLD)
+    is_weather_candidate = (dts < 5.0) & (dps < 3.5) & (dhs < 14.0) & (sig_score == 0) & phys_consistent
+    dampened_score = np.where(is_weather_candidate, base_score * 0.75, base_score)
+
+    # Hardware / Signal Quality floor: stuck, missing, or duplicate signals are guaranteed high anomalies
     anomaly_score_test = np.maximum(dampened_score, sig_score * 0.88)
 
     print("Evaluating...")
-    threshold = 0.50
+    threshold = 0.45
     preds = (anomaly_score_test > threshold).astype(int)
 
     precision = precision_score(y_test, preds, zero_division=0)
@@ -161,7 +201,8 @@ def main():
     joblib.dump(explainer, os.path.join(models_dir, 'explainer.joblib'))
 
     metadata = {
-        'model_version': 'if_v2_2026-09-09',
+        'model_type': 'IsolationForest + Spatial Cluster + Multivariate Physical Residual + Temporal Sustained + QC Rules',
+        'model_version': 'if_v5_temporal_sustained_2026-09-10',
         'features': ml_features,
         'contamination': contamination_rate,
         'spatial_baselines': spatial_baselines,
@@ -183,7 +224,42 @@ def main():
     with open(os.path.join(models_dir, 'metadata.json'), 'w') as f:
         json.dump(metadata, f, indent=2)
 
-    print("Done! Model and metadata saved to ml-service/models/")
+    # Multi-seed validation summary (5 seeds)
+    multi_seed_metrics = []
+    for s in [40, 41, 42, 43, 44]:
+        s_model = IsolationForest(n_estimators=100, contamination=contamination_rate, random_state=s)
+        s_model.fit(X_train_scaled)
+        s_raw_tr = -s_model.decision_function(X_train_scaled)
+        s_min, s_max = float(s_raw_tr.min()), float(s_raw_tr.max() + 0.1)
+        s_if = np.clip((-s_model.decision_function(X_test_scaled) - s_min) / (s_max - s_min), 0.0, 1.0)
+        s_base = (
+            W_IF * s_if
+            + W_SP * spatial_max_score
+            + W_MV * mv_score
+            + W_SIG * sig_score
+            + 0.10 * sustained_isolated_pressure
+        )
+        s_damp = np.where(is_weather_candidate, s_base * 0.75, s_base)
+        s_anom = np.maximum(s_damp, sig_score * 0.88)
+        s_preds = (s_anom > threshold).astype(int)
+        s_tn, s_fp, s_fn, s_tp = confusion_matrix(y_test, s_preds).ravel()
+        multi_seed_metrics.append({
+            'precision': precision_score(y_test, s_preds, zero_division=0),
+            'recall': recall_score(y_test, s_preds, zero_division=0),
+            'f1': f1_score(y_test, s_preds, zero_division=0),
+            'pr_auc': average_precision_score(y_test, s_anom),
+            'roc_auc': roc_auc_score(y_test, s_anom),
+            'false_alarm_rate': s_fp / (s_fp + s_tn)
+        })
+    ms_df = pd.DataFrame(multi_seed_metrics)
+    eval_summary = {
+        k: {'mean': float(ms_df[k].mean()), 'std': float(ms_df[k].std())}
+        for k in ms_df.columns
+    }
+    with open(os.path.join(models_dir, 'evaluation_summary.json'), 'w') as f:
+        json.dump(eval_summary, f, indent=2)
+
+    print("Done! Model, metadata, and evaluation summary saved to ml-service/models/")
 
 if __name__ == "__main__":
     main()

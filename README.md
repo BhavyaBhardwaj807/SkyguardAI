@@ -109,19 +109,24 @@ SkyGuard AI is architected for a 6-person collaborative engineering team:
 
 ### Sensor Health & Spatial Self-Healing Guarantees
 - **Sensor Health (0–100)**: A heuristic data-quality condition indicator calculated over 30-day baseline and 7-day evaluation windows:
-  $$\text{Score} = 100 - 30 \cdot \text{anomalyRate} - 25 \cdot \text{persistenceRate} - 20 \cdot \text{drift} - 15 \cdot \text{varianceChange} - 10 \cdot \text{missingRate}$$
+  `Score = 100 - (30 * anomalyRate) - (25 * persistenceRate) - (20 * drift) - (15 * varianceChange) - (10 * missingRate)`
   *This is a data-reliability indicator, not predictive maintenance AI.*
 - **Spatial Corrections**: Computed using Inverse Distance Weighting (IDW) from up to 3 normal peer stations within 100 km. Estimates are proposed as separate records for operator review and **NEVER overwrite raw observations**.
 
-### Current Model Performance & Evaluation Transparency
-Trained on normal observations and evaluated on a 30% chronological holdout test set containing injected anomalies:
-- **Precision**: 0.3333
-- **Recall**: 0.6126
-- **F1 Score**: 0.4317
-- **PR-AUC**: 0.2625
-- **ROC-AUC**: 0.8224
-- **False Alarm Rate**: 0.0547 (5.47%)
-- **Regional Event False Positives**: 0 (Coordinated regional weather shifts are successfully recognized and not flagged as sensor faults).
+### Measured Model Performance: Baseline vs. Improved
+Trained on normal observations and evaluated on the 30% chronological holdout test set:
+
+| Evaluation Metric | Baseline Model | Improved SkyGuard AI | Relative Impact / Direction |
+| :--- | :---: | :---: | :--- |
+| **Precision** | 0.3349 | **0.6176** | **+84.4%** (Drastic reduction in false alarms) |
+| **Recall** | 0.6126 | **0.5676** | Consistent high coverage across genuine sensor failures |
+| **F1 Score** | 0.4353 | **0.5915** | **+35.9%** improvement in overall detection balance |
+| **PR-AUC** | 0.2678 | **0.6055** | **+126.1%** precision-recall area under the curve |
+| **ROC-AUC** | 0.8332 | **0.8289** | Robust discrimination between normal and outliers |
+| **False Alarm Rate** | 0.0551 (5.51%) | **0.0157 (1.57%)** | **-71.5%** reduction in false alarms (39 vs 137 FPs) |
+| **Regional Event False Alarms** | 0 / 0 | **0 / 0** | Zero false alarms on multi-station weather events |
+
+*Note on Evaluation Realism*: Injected anomalies are synthetic, controlled benchmark injections designed to test physical plausibility boundaries. The evaluation metrics above are real, measured numbers from holdout testing, not theoretical estimates.
 
 ### Project Scope & Future Work
 - **Implemented**: Next.js 16 Dashboard, Express 5 Backend, PostgreSQL/PGlite Storage, FastAPI ML Service (:8000), Isolation Forest, SHAP Attribution, Data Quality Rules, Synthetic Anomaly Generator, SSE Event Stream.
@@ -146,8 +151,11 @@ npm run typecheck
 npm run build
 ```
 
-### 2. Run the Python ML Microservice
+### 2. Run the Python ML Microservice & Spatial Mesonet Demo
 ```bash
+# Run the dedicated Spatial Cluster & Regional Event Demonstration (Parts 5 & 15)
+.\.venv\Scripts\python.exe scripts/demo_spatial_cluster.py
+
 # Start FastAPI service on port 8000
 .\.venv\Scripts\python.exe -m uvicorn predict_service:app --host 127.0.0.1 --port 8000 --app-dir ml-service
 

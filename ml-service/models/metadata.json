@@ -1,5 +1,6 @@
 {
-  "model_version": "if_v2_2026-09-09",
+  "model_type": "IsolationForest + Spatial Cluster + Multivariate Physical Residual + Temporal Sustained + QC Rules",
+  "model_version": "if_v5_temporal_sustained_2026-09-10",
   "features": [
     "temp_rate",
     "pressure_rate",
@@ -19,46 +20,46 @@
   "spatial_baselines": {
     "AWS001": {
       "temp_mean": 1.244296708361444,
-      "pres_mean": 10.73810968602477,
-      "hum_mean": 3.20143516479318
+      "pres_mean": 10.738109686024767,
+      "hum_mean": 3.2014351647931796
     },
     "AWS002": {
-      "temp_mean": -0.6399665526044037,
-      "pres_mean": 41.947867230849916,
+      "temp_mean": -0.6399665526044038,
+      "pres_mean": 41.94786723084994,
       "hum_mean": 7.33887339604445
     },
     "AWS003": {
       "temp_mean": -5.732939763109753,
       "pres_mean": -85.76422058453794,
-      "hum_mean": 1.4437121070007628
+      "hum_mean": 1.4437121070007635
     },
     "AWS004": {
       "temp_mean": 4.767721718450033,
-      "pres_mean": 58.86934676314345,
+      "pres_mean": 58.86934676314346,
       "hum_mean": -10.78328187791859
     },
     "AWS005": {
-      "temp_mean": -0.008523902788588372,
-      "pres_mean": 28.862600447032783,
-      "hum_mean": 11.165636937049658
+      "temp_mean": -0.008523902788584769,
+      "pres_mean": 28.862600447032904,
+      "hum_mean": 11.165636937049669
     },
     "AWS006": {
-      "temp_mean": 0.39843179002182244,
-      "pres_mean": -25.89738179927451,
-      "hum_mean": -5.133951295544939
+      "temp_mean": 0.39843179002182233,
+      "pres_mean": -25.897381799274502,
+      "hum_mean": -5.13395129554494
     }
   },
   "calibration": {
-    "score_min": -0.15191668006057896,
-    "score_max": 0.21171430366967117
+    "score_min": -0.151413938280559,
+    "score_max": 0.21716614043888763
   },
   "metrics": {
-    "precision": 0.3333333333333333,
-    "recall": 0.6126126126126126,
-    "f1": 0.43174603174603177,
-    "pr_auc": 0.26254071677745594,
-    "roc_auc": 0.8224450334578951,
-    "false_alarm_rate": 0.05466237942122187,
+    "precision": 0.7551020408163265,
+    "recall": 0.6666666666666666,
+    "f1": 0.7081339712918661,
+    "pr_auc": 0.6997424738968692,
+    "roc_auc": 0.8573187335245213,
+    "false_alarm_rate": 0.00964630225080386,
     "regional_event_fps": 0,
     "regional_event_total": 0
   }

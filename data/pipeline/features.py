@@ -327,7 +327,7 @@ def add_multivariate_residuals(df):
             )
 
             current_x = (
-                group[pressure_col] - x_mean
+                group["pressure_hpa"] - x_mean
             ) / x_std
 
             expected_temperature = (
@@ -389,7 +389,7 @@ def add_multivariate_residuals(df):
             )
 
             current_x = (
-                group[humidity_col] - x_mean
+                group["humidity_pct"] - x_mean
             ) / x_std
 
             expected_temperature = (
@@ -665,10 +665,12 @@ def add_time_features(df):
 
 def add_persistence_flag(df):
     """
-    Mark a sensor as persistent when its value remains
-    unchanged for at least three consecutive observations.
+    Mark a sensor as persistent when its value remains unchanged
+    for at least six consecutive observations (matching qc_rules.py
+    and WMO persistence guidance: PERSISTENCE_WINDOW = 6).
 
-    This is calculated independently of anomaly_label.
+    This prevents natural 2-hour humidity or pressure plateaus during
+    monsoon downpours from generating false sensor-freeze alarms.
     """
 
     df["persistence_flag"] = False
@@ -691,12 +693,11 @@ def add_persistence_flag(df):
                 .eq(group[column].shift(1))
             )
 
+            # PERSISTENCE_WINDOW = 6 (5 consecutive hourly equality checks)
             persistent = (
-                same_as_previous
-                & same_as_previous.shift(
-                    1,
-                    fill_value=False,
-                )
+                same_as_previous.rolling(5)
+                .sum()
+                .ge(5)
             )
 
             persistent_indices = idx[

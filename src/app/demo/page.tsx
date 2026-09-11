@@ -20,6 +20,9 @@ type StationRow = {
     observedAt: string;
     explanation: string;
     anomalyScore: number | null;
+    severity?: string;
+    suspectedCategory?: string | null;
+    affectedChannels?: string[];
   } | null;
   processing_status: string | null;
 };
@@ -217,21 +220,123 @@ export default function Demo() {
                       {absent ? "Missing" : (s.raw?.pressureHpa ?? "Missing")}
                     </td>
                     <td>
-                      {current || absent
-                        ? s.assessment!.verdict
-                        : s.processing_status || "Historical context"}
-                      {s.assessment && (
-                        <details>
-                          <summary>
-                            Evidence{" "}
-                            {current || absent ? "" : "(previous observation)"}
-                          </summary>
-                          <p>{s.assessment.explanation}</p>
-                          <small>
-                            Score: {s.assessment.anomalyScore ?? "Unavailable"}
-                          </small>
-                        </details>
-                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                              background:
+                                s.assessment?.verdict === "normal"
+                                  ? "rgba(16, 185, 129, 0.15)"
+                                  : s.assessment?.verdict === "suspected_fault"
+                                    ? "rgba(239, 68, 68, 0.2)"
+                                    : "rgba(245, 158, 11, 0.2)",
+                              color:
+                                s.assessment?.verdict === "normal"
+                                  ? "#10b981"
+                                  : s.assessment?.verdict === "suspected_fault"
+                                    ? "#ef4444"
+                                    : "#f59e0b",
+                            }}
+                          >
+                            {current || absent
+                              ? s.assessment!.verdict.replace(/_/g, " ")
+                              : s.processing_status || "Historical context"}
+                          </span>
+                          {s.assessment?.severity &&
+                            s.assessment.severity !== "none" && (
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  textTransform: "uppercase",
+                                  color: "#94a3b8",
+                                }}
+                              >
+                                {s.assessment.severity} severity
+                              </span>
+                            )}
+                        </div>
+                        {s.assessment?.suspectedCategory && (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#cbd5e1",
+                            }}
+                          >
+                            Root cause:{" "}
+                            <strong>
+                              {s.assessment.suspectedCategory.replace(
+                                /_/g,
+                                " ",
+                              )}
+                            </strong>
+                          </div>
+                        )}
+                        {s.assessment && (
+                          <details style={{ marginTop: 2 }}>
+                            <summary
+                              style={{
+                                cursor: "pointer",
+                                fontSize: 12,
+                                color: "#38bdf8",
+                              }}
+                            >
+                              Evidence{" "}
+                              {current || absent
+                                ? ""
+                                : "(previous observation)"}
+                            </summary>
+                            <div
+                              style={{
+                                padding: "6px 0",
+                                fontSize: 12,
+                                color: "#94a3b8",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 4,
+                              }}
+                            >
+                              <p style={{ margin: 0 }}>
+                                {s.assessment.explanation}
+                              </p>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 12,
+                                  marginTop: 4,
+                                  fontSize: 11,
+                                }}
+                              >
+                                <span>
+                                  Anomaly Score:{" "}
+                                  <strong>
+                                    {s.assessment.anomalyScore != null
+                                      ? s.assessment.anomalyScore.toFixed(3)
+                                      : "Unavailable"}
+                                  </strong>
+                                </span>
+                                {s.assessment.affectedChannels &&
+                                  s.assessment.affectedChannels.length > 0 && (
+                                    <span>
+                                      Channels:{" "}
+                                      <strong>
+                                        {s.assessment.affectedChannels.join(
+                                          ", ",
+                                        )}
+                                      </strong>
+                                    </span>
+                                  )}
+                              </div>
+                            </div>
+                          </details>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

@@ -1,0 +1,150 @@
+{
+  "stations": [
+    {
+      "station_id": "MESO_01",
+      "name": "Delhi Lodhi Road AWS",
+      "latitude": 28.59,
+      "longitude": 77.22,
+      "elevation_m": 216
+    },
+    {
+      "station_id": "MESO_02",
+      "name": "Delhi Palam AWS",
+      "latitude": 28.58,
+      "longitude": 77.12,
+      "elevation_m": 228
+    },
+    {
+      "station_id": "MESO_03",
+      "name": "Delhi Akshardham AWS",
+      "latitude": 28.61,
+      "longitude": 77.28,
+      "elevation_m": 208
+    },
+    {
+      "station_id": "MESO_04",
+      "name": "Noida Sector 62 AWS",
+      "latitude": 28.62,
+      "longitude": 77.36,
+      "elevation_m": 200
+    },
+    {
+      "station_id": "MESO_05",
+      "name": "Gurgaon Cyber City AWS",
+      "latitude": 28.49,
+      "longitude": 77.09,
+      "elevation_m": 235
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "isolated_sensor_fault",
+      "title": "Scenario A: Isolated Single-Sensor Hardware Failure",
+      "description": "Station MESO_05 experiences an extreme hardware thermal spike (55.0 C) while surrounding stations 1-4 remain normal (31.7 - 32.1 C).",
+      "expected_verdict_normal_stations": "normal",
+      "expected_verdict_fault_station": "suspected_fault",
+      "expected_root_cause": "temperature_sensor_fault",
+      "observations": [
+        {
+          "station_id": "MESO_01",
+          "temperature_c": 31.8,
+          "pressure_hpa": 1008.2,
+          "humidity_pct": 62.0,
+          "temp_rate": 0.1,
+          "temp_rolling_mean": 31.7,
+          "temp_rolling_std": 0.3
+        },
+        {
+          "station_id": "MESO_02",
+          "temperature_c": 32.1,
+          "pressure_hpa": 1007.9,
+          "humidity_pct": 60.0,
+          "temp_rate": 0.2,
+          "temp_rolling_mean": 31.9,
+          "temp_rolling_std": 0.4
+        },
+        {
+          "station_id": "MESO_03",
+          "temperature_c": 32.0,
+          "pressure_hpa": 1008.4,
+          "humidity_pct": 61.0,
+          "temp_rate": 0.0,
+          "temp_rolling_mean": 32.0,
+          "temp_rolling_std": 0.3
+        },
+        {
+          "station_id": "MESO_04",
+          "temperature_c": 31.7,
+          "pressure_hpa": 1008.1,
+          "humidity_pct": 63.0,
+          "temp_rate": -0.1,
+          "temp_rolling_mean": 31.8,
+          "temp_rolling_std": 0.2
+        },
+        {
+          "station_id": "MESO_05",
+          "temperature_c": 55.0,
+          "pressure_hpa": 1008.0,
+          "humidity_pct": 61.0,
+          "temp_rate": 23.1,
+          "temp_rolling_mean": 37.2,
+          "temp_rolling_std": 9.8
+        }
+      ]
+    },
+    {
+      "id": "coordinated_regional_event",
+      "title": "Scenario B: Coordinated Regional Weather Event (Monsoon Squall Line)",
+      "description": "A severe convective squall passes over the mesonet: all 5 stations experience simultaneous temperature drop (-5 C), pressure drop (-4 hPa), and humidity surge (+28%).",
+      "expected_verdict_all_stations": "likely_meteorological_event",
+      "expected_root_cause": "likely_meteorological_event",
+      "observations": [
+        {
+          "station_id": "MESO_01",
+          "temperature_c": 26.8,
+          "pressure_hpa": 1004.4,
+          "humidity_pct": 88.0,
+          "temp_rate": -5.2,
+          "pressure_rate": -3.8,
+          "humidity_rate": 26.0
+        },
+        {
+          "station_id": "MESO_02",
+          "temperature_c": 26.5,
+          "pressure_hpa": 1003.8,
+          "humidity_pct": 90.0,
+          "temp_rate": -5.6,
+          "pressure_rate": -4.1,
+          "humidity_rate": 30.0
+        },
+        {
+          "station_id": "MESO_03",
+          "temperature_c": 26.7,
+          "pressure_hpa": 1004.5,
+          "humidity_pct": 89.0,
+          "temp_rate": -5.3,
+          "pressure_rate": -3.9,
+          "humidity_rate": 28.0
+        },
+        {
+          "station_id": "MESO_04",
+          "temperature_c": 26.4,
+          "pressure_hpa": 1004.1,
+          "humidity_pct": 91.0,
+          "temp_rate": -5.3,
+          "pressure_rate": -4.0,
+          "humidity_rate": 28.0
+        },
+        {
+          "station_id": "MESO_05",
+          "temperature_c": 26.6,
+          "pressure_hpa": 1004.3,
+          "humidity_pct": 87.0,
+          "temp_rate": -5.5,
+          "pressure_rate": -3.7,
+          "humidity_rate": 27.0
+        }
+      ]
+    }
+  ]
+}

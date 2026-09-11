@@ -135,30 +135,63 @@ def predict(req: PredictRequest):
     )
     sig_score = 1.0 if sig_fault else 0.0
     
-    # 4. Composite Scoring with Regional Weather Dampener
-    base_score = 0.55 * if_score + 0.30 * spatial_max_score + 0.15 * sig_score
-    
-    # If all variables and neighbors agree without breakaway and no hardware flags, dampen weather transients
-    no_breakaway = (adj_sp_temp < 5.0) and (adj_sp_pres < 3.5) and (adj_sp_hum < 14.0) and (not sig_fault)
-    if no_breakaway:
+    # 4. Multivariate Physical Residual Evidence
+    # When z-scored residuals exceed 2.0σ, atmospheric relationships are
+    # physically implausible — evidence of sensor fault even if individual values look normal.
+    z_tp = abs(float(X_scaled[0, 9]))   # temp_pressure_residual (scaled)
+    z_th = abs(float(X_scaled[0, 10]))  # temp_humidity_residual (scaled)
+    MV_ACTIVATION_THRESHOLD = 2.0
+    MV_SCALE = 3.5
+    mv_score = float(np.clip(
+        max(
+            (z_th - MV_ACTIVATION_THRESHOLD) / MV_SCALE,
+            (z_tp - MV_ACTIVATION_THRESHOLD) / MV_SCALE
+        ), 0.0, 1.0
+    ))
+
+    # 5. Temporal Sustained-Level Evidence (Isolated Barometric Plateau Offset)
+    z_pstd = abs(float(X_scaled[0, 6]))  # pressure_rolling_std (scaled)
+    sustained_p_raw = float(np.clip((z_pstd - 2.5) / 3.0, 0.0, 1.0))
+    peer_disagree = float(np.clip((adj_sp_pres - 3.5) / 3.0, 0.0, 1.0))
+    sustained_isolated_pressure = sustained_p_raw * peer_disagree
+
+    # 6. Composite Scoring — Balanced 4-Evidence Multi-Channel Fusion + Temporal Sustained Term
+    W_IF, W_SP, W_MV, W_SIG = 0.45, 0.25, 0.18, 0.12
+    base_score = (
+        W_IF * if_score
+        + W_SP * spatial_max_score
+        + W_MV * mv_score
+        + W_SIG * sig_score
+        + 0.10 * sustained_isolated_pressure
+    )
+
+    # Physics-aware regional weather dampener:
+    # Real weather events maintain atmospheric consistency (z < 2.5σ).
+    PHYS_CONSISTENCY_THRESHOLD = 2.5
+    phys_consistent = (z_th < PHYS_CONSISTENCY_THRESHOLD) and (z_tp < PHYS_CONSISTENCY_THRESHOLD)
+    is_weather_candidate = (adj_sp_temp < 5.0) and (adj_sp_pres < 3.5) and (adj_sp_hum < 14.0) and (not sig_fault) and phys_consistent
+    if is_weather_candidate:
         final_anomaly_score = base_score * 0.75
     else:
         final_anomaly_score = base_score
-        
+
     # Guaranteed fault floor for hardware issues (missing data, stuck sensor, duplicate)
     if sig_fault:
         final_anomaly_score = max(final_anomaly_score, 0.88)
-        
+
     final_anomaly_score = float(np.clip(final_anomaly_score, 0.0, 1.0))
-    
-    # 5. SHAP Feature Contributions (Normalized to Relative % Weights)
+
+    # 7. SHAP Feature Contributions (Normalized to Relative % Weights)
     shap_values = explainer.shap_values(X_scaled)
     ml_contributions = {feat: float(abs(val)) for feat, val in zip(ml_features, shap_values[0])}
-    
-    # Incorporate normalized spatial influences
+
+    # Incorporate normalized spatial, multivariate, and sustained temporal influences
     ml_contributions['spatial_temp_deviation'] = float(adj_sp_temp / 7.0)
     ml_contributions['spatial_pressure_deviation'] = float(adj_sp_pres / 4.5)
     ml_contributions['spatial_humidity_deviation'] = float(adj_sp_hum / 18.0)
+    ml_contributions['multivariate_physical_residual'] = mv_score
+    if sustained_isolated_pressure > 0.01:
+        ml_contributions['sustained_pressure_offset'] = sustained_isolated_pressure
     
     if sig_fault:
         if feature_dict.get('missing_flag'):
@@ -179,5 +212,5 @@ def predict(req: PredictRequest):
         "anomaly_score": round(final_anomaly_score, 4),
         "raw_isolation_score": round(raw_score, 4),
         "feature_contributions": top_contributions,
-        "model_version": metadata.get('model_version', 'if_v2_2026-09-09')
+        "model_version": metadata.get('model_version', 'if_v5_temporal_sustained_2026-09-10')
     }

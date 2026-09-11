@@ -150,32 +150,182 @@ export async function assess(
       : corroborated
         ? "uncertain"
         : "normal";
-  const severity = evidence.some((e) => e.code === "range")
-    ? "high"
-    : evidence.some((e) =>
-          ["step", "missing_channel", "persistence"].includes(e.code),
-        )
-      ? "medium"
-      : verdict === "normal"
-        ? "none"
-        : "unknown";
+
+  const rootCause = determineRootCauseAndExplanation(
+    verdict,
+    p.anomaly_score,
+    evidence,
+    affected,
+    p,
+    o,
+  );
+
   return {
     ...base,
     verdict,
     anomalyScore: p.anomaly_score,
-    severity,
+    severity: rootCause.severity,
     evidenceStrength: corroborated ? "moderate" : "limited",
-    suspectedCategory:
-      evidence[0]?.code ?? (verdict === "normal" ? null : "unusual_pattern"),
+    suspectedCategory: rootCause.category,
     affectedChannels: affected,
     evidence,
     modelVersion: p.model_version,
     prediction: p,
-    explanation: evidence.length
-      ? evidence.map((e) => e.detail).join(" ") +
-        " Findings are indicative, not a confirmed sensor diagnosis."
-      : verdict === "normal"
-        ? "Score is below the existing 0.50 demo threshold; this is not proof of sensor health."
-        : "Unusual model score without sufficient independent channel evidence. Review required.",
+    explanation: rootCause.explanation,
+  };
+}
+
+function determineRootCauseAndExplanation(
+  verdict: string,
+  anomalyScore: number,
+  evidence: Evidence[],
+  affectedChannels: string[],
+  prediction: Prediction,
+  o: Observation,
+): {
+  category: string | null;
+  explanation: string;
+  severity: "none" | "low" | "medium" | "high" | "unknown";
+} {
+  if (verdict === "normal") {
+    return {
+      category: null,
+      severity: "none",
+      explanation: `Observation is statistically and physically consistent across channels (anomaly score: ${anomalyScore.toFixed(3)} <= 0.50 threshold). No sensor fault suspected.`,
+    };
+  }
+
+  // 1. Hardware / communication dropouts
+  if (
+    evidence.some(
+      (e) => e.code === "missing_channel" || e.code === "missing_slot",
+    ) ||
+    o.features?.missing_flag
+  ) {
+    return {
+      category: "communication_failure",
+      severity: "high",
+      explanation:
+        "Data dropout detected: one or more channels failed to report telemetry. Hardware or telemetry transmission failure suspected. Raw state preserved.",
+    };
+  }
+
+  // 2. Frozen sensor persistence
+  if (
+    evidence.some((e) => e.code === "persistence") ||
+    o.features?.persistence_flag
+  ) {
+    const ch =
+      affectedChannels.length > 0
+        ? `${affectedChannels.join(", ")} channel`
+        : "sensor channel";
+    return {
+      category: "frozen_sensor",
+      severity: "medium",
+      explanation: `Sensor freeze detected: ${ch} repeated identical values across consecutive hourly samples (persistence check violation). Sensor stuck or ADC locked.`,
+    };
+  }
+
+  // 3. Out-of-range sensor readings
+  if (evidence.some((e) => e.code === "range")) {
+    const ch = affectedChannels[0] ?? "sensor";
+    return {
+      category: `${ch}_sensor_fault`,
+      severity: "high",
+      explanation: `Physical range violation on ${ch}: reading lies outside plausible atmospheric bounds. Hardware malfunction or electrical spike suspected.`,
+    };
+  }
+
+  // 4. Sudden rate jumps (step check)
+  if (evidence.some((e) => e.code === "step")) {
+    const ch = affectedChannels[0] ?? "sensor";
+    return {
+      category: `${ch}_sensor_fault`,
+      severity: "medium",
+      explanation: `Sudden rate jump on ${ch}: value changed beyond physical step thresholds in a single hourly interval without peer corroboration. Isolated channel fault suspected.`,
+    };
+  }
+
+  // 5. Uncertain / Ambiguous verdict handling (prevent premature hardware fault attribution)
+  if (verdict === "uncertain") {
+    const spTemp = o.features?.spatial_temp_deviation;
+    const spPres = o.features?.spatial_pressure_deviation;
+    const isPeerSupported =
+      spTemp !== null &&
+      spTemp !== undefined &&
+      Math.abs(spTemp) < 5.0 &&
+      spPres !== null &&
+      spPres !== undefined &&
+      Math.abs(spPres) < 3.5;
+
+    if (isPeerSupported) {
+      return {
+        category: "likely_meteorological_event",
+        severity: "low",
+        explanation: `Statistically unusual atmospheric shift detected (anomaly score: ${anomalyScore.toFixed(3)}), but peer stations corroborate similar conditions without isolated sensor breakaway. Likely genuine regional weather event.`,
+      };
+    }
+
+    return {
+      category: "transient_anomaly",
+      severity: "low",
+      explanation: `Subtle statistical or physical deviation observed (anomaly score: ${anomalyScore.toFixed(3)}), but corroborating physical or spatial evidence remains limited. Flagged for operational monitoring without raising high-severity alarm.`,
+    };
+  }
+
+  // 6. SHAP & multi-channel feature contributions for confirmed faults
+  const topFeatures = Object.entries(prediction.feature_contributions || {}).sort(
+    (a, b) => b[1] - a[1],
+  );
+  const topFeat = topFeatures[0]?.[0] ?? "";
+
+  if (topFeat.includes("residual") || topFeat === "multivariate_physical_residual") {
+    return {
+      category: "calibration_drift",
+      severity: "medium",
+      explanation:
+        "Physical relationship contradiction: temperature and humidity/pressure residuals diverge significantly from historical atmospheric baseline. Gradual sensor calibration drift suspected.",
+    };
+  }
+
+  if (topFeat.startsWith("temp") || topFeat === "spatial_temp_deviation") {
+    return {
+      category: "temperature_sensor_fault",
+      severity: "medium",
+      explanation:
+        "Isolated temperature channel anomaly: thermal rate and spatial deviation diverge from local peer stations while humidity and pressure remain stable.",
+    };
+  }
+
+  if (
+    topFeat.startsWith("pressure") ||
+    topFeat === "spatial_pressure_deviation" ||
+    topFeat === "sustained_pressure_offset"
+  ) {
+    const isSustained =
+      topFeat === "sustained_pressure_offset" ||
+      !evidence.some((e) => e.code === "step");
+    return {
+      category: "pressure_sensor_fault",
+      severity: "medium",
+      explanation: isSustained
+        ? "Sustained barometric displacement: pressure remains substantially displaced from the station's expected temporal baseline while neighboring stations remain stable. Isolated pressure sensor plateau fault suspected."
+        : "Isolated barometric sensor anomaly: pressure rate diverges from local peer stations while thermal channels remain stable.",
+    };
+  }
+
+  if (topFeat.startsWith("humidity") || topFeat === "spatial_humidity_deviation") {
+    return {
+      category: "humidity_sensor_fault",
+      severity: "medium",
+      explanation:
+        "Isolated hygrometric sensor anomaly: relative humidity diverges sharply from local atmospheric baseline.",
+    };
+  }
+
+  return {
+    category: "transient_anomaly",
+    severity: "low",
+    explanation: `Unusual multi-channel pattern detected (anomaly score: ${anomalyScore.toFixed(3)}). Corroborating evidence is limited; review required.`,
   };
 }
