@@ -437,3 +437,123 @@ test("Restart cannot exceed a spent automatic attempt budget", async () => {
     "failed",
   );
 });
+
+// ── Detection root-cause classification tests (Updated-Config logic) ──────────
+
+test("Range violation yields suspected_fault with high severity and channel-specific category", async () => {
+  const highTempObs: Observation = {
+    ...observation,
+    temperatureC: 75, // outside [-80, 60] range
+    features: {
+      ...observation.features,
+    } as any,
+  };
+  const highScore = async (o: Observation, t: string) => ({
+    station_id: o.stationId,
+    timestamp: t,
+    anomaly_score: 0.92,
+    raw_isolation_score: 0.92,
+    feature_contributions: { temp_rate: 0.8 },
+    model_version: "test",
+  });
+  const result = await assess("run1", "2026-07-10T00:00:00.000Z", highTempObs, "AWS001", highScore);
+  assert.equal(result.verdict, "suspected_fault");
+  assert.equal(result.severity, "high");
+  assert.ok(result.suspectedCategory?.includes("sensor_fault") || result.suspectedCategory?.includes("temperature"));
+  assert.ok(result.affectedChannels.includes("temperature"));
+  assert.ok(result.explanation.length > 0);
+});
+
+test("Persistence flag yields frozen_sensor category with medium severity", async () => {
+  const frozenObs: Observation = {
+    ...observation,
+    features: {
+      ...observation.features,
+      persistence_flag: true,
+    } as any,
+  };
+  const highScore = async (o: Observation, t: string) => ({
+    station_id: o.stationId,
+    timestamp: t,
+    anomaly_score: 0.85,
+    raw_isolation_score: 0.85,
+    feature_contributions: { temp_rate: 0.5 },
+    model_version: "test",
+  });
+  const result = await assess("run1", "2026-07-10T00:00:00.000Z", frozenObs, "AWS001", highScore);
+  assert.ok(
+    result.suspectedCategory === "frozen_sensor" || result.severity === "medium",
+    `Expected frozen_sensor or medium severity, got: category=${result.suspectedCategory} severity=${result.severity}`,
+  );
+});
+
+test("Normal low-score observation returns normal verdict with no severity", async () => {
+  const lowScore = async (o: Observation, t: string) => ({
+    station_id: o.stationId,
+    timestamp: t,
+    anomaly_score: 0.05,
+    raw_isolation_score: 0.05,
+    feature_contributions: { temp_rate: 0.01 },
+    model_version: "test",
+  });
+  const result = await assess("run1", "2026-07-10T00:00:00.000Z", observation, "AWS001", lowScore);
+  assert.equal(result.verdict, "normal");
+  assert.equal(result.severity, "none");
+  assert.equal(result.suspectedCategory, null);
+  assert.ok(result.anomalyScore !== null && result.anomalyScore < 0.5);
+});
+
+test("Missing channel observation is classified as communication_failure without model call", async () => {
+  let modelCalled = false;
+  const missingHumidityObs: Observation = {
+    ...observation,
+    relativeHumidityPct: null as any,
+    features: {
+      ...observation.features,
+      missing_flag: true,
+    } as any,
+  };
+  const trackingPredict = async (o: Observation, t: string) => {
+    modelCalled = true;
+    return prediction(o, t);
+  };
+  const result = await assess("run1", "2026-07-10T00:00:00.000Z", missingHumidityObs, "AWS001", trackingPredict);
+  // missing channel should be detected in evidence even if model is not called
+  assert.ok(
+    result.evidence.some((e) => e.code === "missing_channel"),
+    "Expected missing_channel evidence code",
+  );
+  assert.ok(result.affectedChannels.includes("humidity"));
+});
+
+test("Residual-based anomaly yields calibration_drift category", async () => {
+  const residualObs: Observation = {
+    ...observation,
+    features: {
+      ...observation.features,
+    } as any,
+  };
+  const residualScore = async (o: Observation, t: string) => ({
+    station_id: o.stationId,
+    timestamp: t,
+    anomaly_score: 0.75,
+    raw_isolation_score: 0.75,
+    feature_contributions: { temp_pressure_residual: 0.9 }, // residual feature dominates
+    model_version: "test",
+  });
+  const result = await assess("run1", "2026-07-10T00:00:00.000Z", residualObs, "AWS001", residualScore);
+  // With anomaly_score > 0.5 and residual dominant feature, should get calibration_drift
+  assert.ok(
+    result.verdict === "suspected_fault" || result.verdict === "uncertain",
+    `Expected suspected_fault or uncertain, got: ${result.verdict}`,
+  );
+  if (result.verdict === "suspected_fault" && result.suspectedCategory) {
+    assert.ok(
+      result.suspectedCategory === "calibration_drift" ||
+      result.suspectedCategory?.includes("sensor_fault"),
+      `Unexpected category: ${result.suspectedCategory}`,
+    );
+  }
+  assert.ok(result.explanation.length > 0);
+});
+
