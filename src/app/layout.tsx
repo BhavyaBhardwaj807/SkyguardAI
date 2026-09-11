@@ -1,7 +1,4 @@
 import type { Metadata } from "next";
-import { ThemeProvider } from "../theme/ThemeContext";
-import "../theme/tokens.css";
-import "../theme/styles.css";
 
 export const metadata: Metadata = {
   title: "SkyGuard AI",
@@ -18,9 +15,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         />
       </head>
       <body>
-        <ThemeProvider>
-          {children}
-        </ThemeProvider>
+        {children}
       </body>
     </html>
   );

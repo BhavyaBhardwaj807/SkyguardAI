@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "src/backend"
+    "src/app/backend"
   ],
   "engines": {
     "node": ">=22.0.0"
@@ -12,6 +12,8 @@
     "dev": "concurrently -k -n web,api \"npm run dev:web\" \"npm run dev:api\"",
     "dev:web": "next dev --hostname 0.0.0.0",
     "dev:api": "npm run dev -w @skyguard/backend",
+    "dev:frontend": "npm run dev -w skyguard-frontend",
+    "dev:all": "concurrently -k -n web,api,frontend \"npm run dev:web\" \"npm run dev:api\" \"npm run dev:frontend\"",
     "build": "npm run build:api && next build --webpack",
     "build:api": "npm run build -w @skyguard/backend",
     "start": "next start --hostname 0.0.0.0",

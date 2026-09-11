@@ -3,21 +3,21 @@ import assert from "node:assert/strict";
 import { PGlite } from "@electric-sql/pglite";
 import request from "supertest";
 import { readFile } from "node:fs/promises";
-import { application } from "../../src/backend/application.js";
-import type { Database, Queryable } from "../../src/backend/db/database.js";
-import { ingest } from "../../src/backend/modules/ingestion.js";
+import { application } from "../../src/app/backend/application.js";
+import type { Database, Queryable } from "../../src/app/backend/db/database.js";
+import { ingest } from "../../src/app/backend/modules/ingestion.js";
 import {
   assess,
   predictionClient,
-} from "../../src/backend/modules/detection.js";
-import { processOne, recover } from "../../src/backend/worker.js";
-import { schedule, createRun } from "../../src/backend/modules/replay.js";
+} from "../../src/app/backend/modules/detection.js";
+import { processOne, recover } from "../../src/app/backend/worker.js";
+import { schedule, createRun } from "../../src/app/backend/modules/replay.js";
 import {
   loadCatalog,
   sourceTime,
   type Catalog,
-} from "../../src/backend/modules/catalog.js";
-import { Events } from "../../src/backend/events.js";
+} from "../../src/app/backend/modules/catalog.js";
+import { Events } from "../../src/app/backend/events.js";
 import { featureNames, type Observation } from "../../src/contracts/index.js";
 import { createServer } from "node:http";
 const pg = new PGlite();
@@ -110,7 +110,7 @@ const batch = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 before(async () => {
-  await pg.exec(await readFile("src/backend/db/schema.sql", "utf8"));
+  await pg.exec(await readFile("src/app/backend/db/schema.sql", "utf8"));
 });
 beforeEach(async () => {
   await pg.exec(
