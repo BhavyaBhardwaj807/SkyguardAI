@@ -1,0 +1,65 @@
+{
+  "model_version": "if_v2_2026-09-09",
+  "features": [
+    "temp_rate",
+    "pressure_rate",
+    "humidity_rate",
+    "temp_rolling_mean",
+    "temp_rolling_std",
+    "pressure_rolling_mean",
+    "pressure_rolling_std",
+    "humidity_rolling_mean",
+    "humidity_rolling_std",
+    "temp_pressure_residual",
+    "temp_humidity_residual",
+    "hour_sin",
+    "hour_cos"
+  ],
+  "contamination": 0.04,
+  "spatial_baselines": {
+    "AWS001": {
+      "temp_mean": 1.244296708361444,
+      "pres_mean": 10.73810968602477,
+      "hum_mean": 3.20143516479318
+    },
+    "AWS002": {
+      "temp_mean": -0.6399665526044037,
+      "pres_mean": 41.947867230849916,
+      "hum_mean": 7.33887339604445
+    },
+    "AWS003": {
+      "temp_mean": -5.732939763109753,
+      "pres_mean": -85.76422058453794,
+      "hum_mean": 1.4437121070007628
+    },
+    "AWS004": {
+      "temp_mean": 4.767721718450033,
+      "pres_mean": 58.86934676314345,
+      "hum_mean": -10.78328187791859
+    },
+    "AWS005": {
+      "temp_mean": -0.008523902788588372,
+      "pres_mean": 28.862600447032783,
+      "hum_mean": 11.165636937049658
+    },
+    "AWS006": {
+      "temp_mean": 0.39843179002182244,
+      "pres_mean": -25.89738179927451,
+      "hum_mean": -5.133951295544939
+    }
+  },
+  "calibration": {
+    "score_min": -0.15191668006057896,
+    "score_max": 0.21171430366967117
+  },
+  "metrics": {
+    "precision": 0.3333333333333333,
+    "recall": 0.6126126126126126,
+    "f1": 0.43174603174603177,
+    "pr_auc": 0.26254071677745594,
+    "roc_auc": 0.8224450334578951,
+    "false_alarm_rate": 0.05466237942122187,
+    "regional_event_fps": 0,
+    "regional_event_total": 0
+  }
+}

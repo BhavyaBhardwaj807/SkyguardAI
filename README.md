@@ -1,0 +1,83 @@
+# SkyGuard AI
+
+Next.js and Express application workspace for the local weather-data quality demo. Based on `feature/ml-isolation-forest-v2`; existing Python code, datasets and trained artifacts are preserved.
+
+**Current mode: precomputed feature replay.** The backend calls the existing Python `/predict` endpoint. It does not claim to compute causal live features from raw observations. See [integration boundaries](docs/backend-handoff.md).
+
+<details open>
+<summary><strong>Run the local Docker demo</strong></summary>
+
+Prerequisite: Docker Engine/Desktop with Docker Compose v2. Initial builds require internet access to download images and dependencies.
+
+```bash
+docker compose up --build
+```
+
+Open [localhost:8080](http://localhost:8080). Create a run, then select **Start** or **Step**. The display uses actual backend data and calls the existing model service. Only the proxy is published, bound to loopback. PostgreSQL and Python are internal services.
+
+```bash
+docker compose ps
+docker compose logs -f api detection
+docker compose stop detection
+# Existing committed readings remain available; processing retries and then fails visibly.
+docker compose start detection
+```
+
+Retry the failed job using the API, then resume the run. See [API examples](docs/api.md).
+
+`docker compose down` stops containers and retains database data. Create another replay run to reset a scenario without deleting history. Do not remove the database volume unless you intend to discard all demo history.
+
+The Python image uses its pre-existing Dockerfile and unpinned requirements. Its artifacts identify scikit-learn **1.9.0**; the ML owner must maintain compatible package versions. No Python dependencies or source files were changed by this backend implementation.
+
+</details>
+
+<details>
+<summary><strong>Run with npm during development</strong></summary>
+
+Use Node.js 22 or newer and npm. One root lockfile covers the Next.js root package and `@skyguard/backend` workspace.
+
+```bash
+npm ci
+cp .env.example .env
+docker run --name skyguard-dev-db -e POSTGRES_USER=skyguard -e POSTGRES_PASSWORD=skyguard_local -e POSTGRES_DB=skyguard -p 127.0.0.1:5432:5432 -d postgres:17-bookworm
+npm run dev
+```
+
+Next.js runs on port 3000, Express on 4000. Start the existing Python service separately on port 8000 using its compatible environment, or use `docker compose` for the full stack. Without Python, reads and ingestion work, while feature processing eventually enters a visible failed state.
+
+```bash
+npm run build
+npm run typecheck
+npm test
+npm run check:boundaries
+```
+
+Tests use PGlite, an embedded PostgreSQL engine, and an explicit test predictor. They do not require Docker or fabricate production model responses.
+
+</details>
+
+## Workspace
+
+| Location            | Responsibility                                                                                  |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| `src/app/frontend/` | Minimal replay integration screen; frontend team can extend it                                  |
+| `src/app/backend/`  | Express, migrations, ingestion, worker, replay, prediction adapter, health, corrections and SSE |
+| `src/contracts/`    | Shared validation schemas and browser-safe types                                                |
+| `ml-service/`       | Existing Python model service, unchanged                                                        |
+| `data/`             | Existing source and feature datasets, unchanged                                                 |
+| `docs/`             | API reference, decisions and frontend/ML handoff                                                |
+
+The root package is the Next.js app; the backend is an npm workspace with its own build/start commands. Folder colocation does not combine runtimes. Next.js never imports backend code or starts its worker.
+
+## Backend guarantees and limits
+
+- Raw observations and pending jobs commit together. Identical retries reuse the receipt; conflicting content returns `409`.
+- Each replay has its own history, cursor and assessments. Reset means a new run.
+- One database-locked API/worker instance processes batches with bounded retries. Python calls happen outside database transactions.
+- Assessments commit before SSE notifications. Reconnect and periodic REST reconciliation repair missed notifications.
+- Missing data, processing failures and unknown states never imply healthy sensors.
+- Health scores require adequate history. Correction proposals are separate, reviewed records and never replace raw values.
+- The existing six distant locations do not provide three usable neighbors within the prototype 100 km correction radius. Correction estimates will correctly be unavailable.
+- Offline feature leakage, spatial validity and model evaluation remain ML/data issues. Existing zero-sample regional evaluation is reported as **not evaluated**.
+
+See [API reference](docs/api.md), [OpenAPI](docs/openapi.json), [handoff and decisions](docs/backend-handoff.md), and [verification](docs/verification.md).

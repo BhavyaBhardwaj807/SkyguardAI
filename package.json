@@ -1,0 +1,44 @@
+{
+  "name": "skyguard-demo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "src/app/backend"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n web,api \"npm run dev:web\" \"npm run dev:api\"",
+    "dev:web": "next dev --hostname 0.0.0.0",
+    "dev:api": "npm run dev -w @skyguard/backend",
+    "build": "npm run build:api && next build --webpack",
+    "build:api": "npm run build -w @skyguard/backend",
+    "start": "next start --hostname 0.0.0.0",
+    "start:api": "npm start -w @skyguard/backend",
+    "typecheck": "tsc --noEmit && npm run typecheck -w @skyguard/backend",
+    "test": "node --import tsx --test tests/backend/*.test.ts",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "api:spec": "node --import tsx scripts/generate-openapi.ts",
+    "format": "prettier --write src tests scripts docker compose.yaml docs README.md package.json tsconfig.json next.config.ts"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.16",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@types/supertest": "6.0.3",
+    "concurrently": "9.2.4",
+    "prettier": "3.9.6",
+    "supertest": "7.2.2",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3"
+  },
+  "type": "module"
+}
