@@ -1,69 +1,110 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import StatusBadge from "../../../../components/StatusBadge";
+import RelativeTime from "../../../../components/RelativeTime";
 import { api } from "../../../../api/client";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, CartesianGrid,
+} from "recharts";
 
 export default function StationDetailPage({ params }) {
-  const resolvedParams = use(params);
-  const stationId = resolvedParams?.stationId || "AWS005";
+  const { stationId } = use(params);
 
-  const [station, setStation] = useState(null);
-  const [history, setHistory] = useState([]);
+  const [station,     setStation]     = useState(null);  // metadata from /stations/:id
+  const [liveRow,     setLiveRow]     = useState(null);  // normalised row from /stations?runId=
+  const [history,     setHistory]     = useState([]);
   const [corrections, setCorrections] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [assessment,  setAssessment]  = useState(null);  // latest assessment for this station
+  const [isLoading,   setIsLoading]   = useState(true);
+  const [error,       setError]       = useState(null);
+  const [runId,       setRunId]       = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
-    Promise.all([
-      api.getStationById(stationId),
-      api.getStationHistory(stationId),
-      api.getCorrections(),
-    ]).then(([st, hist, corrs]) => {
-      if (mounted) {
-        setStation(st);
-        setHistory(hist || []);
-        setCorrections((corrs || []).filter((c) => c.stationId === stationId));
-        setIsLoading(false);
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      // Metadata (no runId needed)
+      const meta = await api.getStationById(stationId);
+      setStation(meta);
+
+      // Latest run
+      const run = await api.getLatestRun();
+      const rid = run?.id ?? null;
+      setRunId(rid);
+
+      if (rid) {
+        // All stations snapshot → find this one for live reading + assessment
+        const allStations = await api.getStations(rid);
+        const thisRow = allStations.find((s) => s.stationId === stationId) ?? null;
+        setLiveRow(thisRow);
+        setAssessment(thisRow?.assessment ?? null);
+
+        // History + corrections in parallel
+        const [hist, corrs] = await Promise.all([
+          api.getStationHistory(stationId, rid),
+          api.getCorrections(rid),
+        ]);
+        setHistory(hist);
+        setCorrections(corrs.filter((c) => c.station_id === stationId));
       }
-    });
-    return () => {
-      mounted = false;
-    };
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
   }, [stationId]);
 
-  if (isLoading || !station) {
+  useEffect(() => { load(); }, [load]);
+
+  if (isLoading) {
     return (
-      <div style={{ padding: "60px 20px", textAlign: "center", color: "var(--text-muted)", fontSize: "15px" }}>
-        Loading station telemetry for {stationId}...
+      <div style={{ padding: "60px 20px", textAlign: "center", color: "var(--text-muted)", fontSize: 15 }}>
+        Loading telemetry for {stationId}…
       </div>
     );
   }
 
-  const r = station.reading || {};
-  const temp = r.temperatureC ?? r.temperature ?? 24.5;
-  const hum = r.relativeHumidityPct ?? r.humidity ?? 60;
-  const pres = r.pressureHpa ?? r.pressure ?? 1012.0;
-  const health = station.healthScore ?? station.health_score ?? 90;
+  if (error || !station) {
+    return (
+      <div style={{ padding: "40px 20px", textAlign: "center" }}>
+        <p style={{ color: "var(--status-critical)", marginBottom: 12 }}>
+          {error ?? "Station not found."}
+        </p>
+        <button className="btn" onClick={load}>Retry</button>
+      </div>
+    );
+  }
+
+  const temp  = liveRow?.temperatureC        ?? null;
+  const hum   = liveRow?.relativeHumidityPct ?? null;
+  const pres  = liveRow?.pressureHpa         ?? null;
+  const verdict = liveRow?.verdict           ?? "insufficient_data";
+
+  // Build description from real assessment data instead of hardcoded IDs
+  const tempDesc = assessment?.affectedChannels?.includes("temperature")
+    ? `${assessment.suspectedCategory?.replace(/_/g, " ") ?? "anomaly detected"}`
+    : "Nominal reading";
+
+  const humDesc = assessment?.affectedChannels?.includes("humidity")
+    ? `${assessment.suspectedCategory?.replace(/_/g, " ") ?? "anomaly detected"}`
+    : "Nominal reading";
+
+  const presDesc = assessment?.affectedChannels?.includes("pressure")
+    ? `${assessment.suspectedCategory?.replace(/_/g, " ") ?? "anomaly detected"}`
+    : "Stable reading";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
-      {/* Breadcrumbs & Header */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          flexWrap: "wrap",
-          gap: "16px",
-          borderBottom: "1px solid var(--border)",
-          paddingBottom: "16px",
-        }}
-      >
+
+      {/* ── Breadcrumb + header ─────────────────────────────────────────── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+        flexWrap: "wrap", gap: 16, borderBottom: "1px solid var(--border)", paddingBottom: 16 }}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "var(--text-muted)", marginBottom: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13,
+            color: "var(--text-muted)", marginBottom: 8 }}>
             <Link href="/dashboard" style={{ color: "var(--text-muted)", textDecoration: "none" }}>Dashboard</Link>
             <span>/</span>
             <Link href="/dashboard/stations" style={{ color: "var(--text-muted)", textDecoration: "none" }}>Stations</Link>
@@ -71,318 +112,265 @@ export default function StationDetailPage({ params }) {
             <span className="data-mono" style={{ color: "var(--accent)", fontWeight: 600 }}>{stationId}</span>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-            <h1 style={{ fontSize: "26px", fontWeight: 700, margin: 0, color: "var(--text)", letterSpacing: "-0.01em" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, color: "var(--text)", letterSpacing: "-0.01em" }}>
               {station.name}
             </h1>
-            <span className="data-mono" style={{ fontSize: "16px", color: "var(--text-muted)" }}>
-              ({stationId})
-            </span>
-            <StatusBadge verdict={station.verdict || station.status} />
+            <span className="data-mono" style={{ fontSize: 16, color: "var(--text-muted)" }}>({stationId})</span>
+            <StatusBadge verdict={verdict} />
           </div>
 
-          <div style={{ fontSize: "13.5px", color: "var(--text-muted)", marginTop: "6px" }}>
-            Lat {station.lat?.toFixed(4)}°N &middot; Lon {station.lon?.toFixed(4)}°E &middot; Elevation {station.elevationM ?? 210} m &middot; Last reading: {station.observedAt ? new Date(station.observedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Recent"}
+          <div style={{ fontSize: 13.5, color: "var(--text-muted)", marginTop: 6 }}>
+            {station.latitude?.toFixed(4)}°N · {station.longitude?.toFixed(4)}°E
+            {liveRow?.observed_at && (
+              <> · Last reading: <RelativeTime timestamp={liveRow.observed_at} /></>
+            )}
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "10px" }}>
-          <Link href="/dashboard/anomalies" className="btn">
-            <span>View Quality Incidents</span>
-          </Link>
-          <Link href="/dashboard/map" className="btn">
-            <span>View on Map</span>
-          </Link>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn" onClick={load}>Refresh</button>
+          <Link href="/dashboard/anomalies" className="btn">Quality Incidents</Link>
+          <Link href="/dashboard/map" className="btn">View on Map</Link>
         </div>
       </div>
 
-      {/* Primary Telemetry Readings Band */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-          gap: "14px",
-        }}
-      >
-        <div className="card" style={{ padding: "18px" }}>
-          <div style={{ fontSize: "13.5px", color: "var(--text-muted)", fontWeight: 500 }}>
-            Ambient Temperature
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginTop: "6px" }}>
-            <span
-              className="data-mono"
-              style={{
-                fontSize: "28px",
-                fontWeight: 700,
-                color: stationId === "AWS005" ? "var(--status-critical)" : "var(--text)",
-              }}
-            >
-              {typeof temp === "number" ? temp.toFixed(1) + "°C" : temp}
+      {/* ── Active assessment banner ────────────────────────────────────── */}
+      {assessment && assessment.verdict !== "normal" && assessment.verdict !== "insufficient_data" && (
+        <div className="card" style={{ padding: "16px 20px",
+          borderLeft: `4px solid ${assessment.verdict === "suspected_fault" ? "var(--status-critical)" : "var(--status-warning)"}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <StatusBadge verdict={assessment.verdict} />
+            <span className="data-mono" style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              score: {assessment.anomalyScore?.toFixed(3) ?? "—"} · {assessment.severity} severity
             </span>
           </div>
-          <div style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "6px" }}>
-            {stationId === "AWS005" ? "Sudden spike (+17.8°C above baseline)" : "Nominal diurnal curve"}
-          </div>
+          <p style={{ fontSize: 14, color: "var(--text)", margin: 0, lineHeight: 1.6 }}>
+            {assessment.explanation}
+          </p>
+          {assessment.affectedChannels?.length > 0 && (
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "6px 0 0 0" }}>
+              Affected channels: <strong>{assessment.affectedChannels.join(", ")}</strong>
+            </p>
+          )}
         </div>
+      )}
 
-        <div className="card" style={{ padding: "18px" }}>
-          <div style={{ fontSize: "13.5px", color: "var(--text-muted)", fontWeight: 500 }}>
-            Relative Humidity
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginTop: "6px" }}>
-            <span
-              className="data-mono"
-              style={{
-                fontSize: "28px",
-                fontWeight: 700,
-                color: stationId === "AWS003" ? "var(--status-warning)" : "var(--text)",
-              }}
-            >
-              {typeof hum === "number" ? hum.toFixed(0) + "%" : hum}
-            </span>
-          </div>
-          <div style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "6px" }}>
-            {stationId === "AWS003" ? "Continuous upward drift detected" : "Conforms with regional average"}
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: "18px" }}>
-          <div style={{ fontSize: "13.5px", color: "var(--text-muted)", fontWeight: 500 }}>
-            Barometric Pressure
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginTop: "6px" }}>
-            <span className="data-mono" style={{ fontSize: "28px", fontWeight: 700, color: "var(--text)" }}>
-              {typeof pres === "number" ? pres.toFixed(1) + " hPa" : pres}
-            </span>
-          </div>
-          <div style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "6px" }}>
-            Stable isobaric pressure
-          </div>
-        </div>
-
-        <div className="card" style={{ padding: "18px" }}>
-          <div style={{ fontSize: "13.5px", color: "var(--text-muted)", fontWeight: 500 }}>
-            Sensor Health Score
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "6px", marginTop: "6px" }}>
-            <span
-              className="data-mono"
-              style={{
-                fontSize: "28px",
-                fontWeight: 700,
-                color:
-                  health < 50
-                    ? "var(--status-critical)"
-                    : health < 75
-                    ? "var(--status-warning)"
-                    : "var(--status-normal)",
-              }}
-            >
-              {health}
-            </span>
-            <span style={{ fontSize: "14px", color: "var(--text-muted)" }}>/ 100</span>
-          </div>
-          <div style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "6px" }}>
-            Based on drift, persistence &amp; uptime
-          </div>
-        </div>
+      {/* ── Reading cards ───────────────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14 }}>
+        <ReadingCard
+          label="Ambient Temperature"
+          value={temp != null ? `${temp.toFixed(1)}°C` : "—"}
+          desc={tempDesc}
+          alert={assessment?.affectedChannels?.includes("temperature")}
+        />
+        <ReadingCard
+          label="Relative Humidity"
+          value={hum != null ? `${hum.toFixed(0)}%` : "—"}
+          desc={humDesc}
+          alert={assessment?.affectedChannels?.includes("humidity")}
+        />
+        <ReadingCard
+          label="Barometric Pressure"
+          value={pres != null ? `${pres.toFixed(1)} hPa` : "—"}
+          desc={presDesc}
+          alert={assessment?.affectedChannels?.includes("pressure")}
+        />
+        <ReadingCard
+          label="Anomaly Score"
+          value={assessment?.anomalyScore != null ? assessment.anomalyScore.toFixed(3) : "—"}
+          desc={assessment ? `verdict: ${assessment.verdict.replace(/_/g, " ")}` : "no assessment yet"}
+          alert={assessment?.verdict === "suspected_fault"}
+        />
       </div>
 
-      {/* 24h Time-Series Diurnal Chart */}
-      <div className="card" style={{ padding: "20px" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            flexWrap: "wrap",
-            gap: "12px",
-            marginBottom: "16px",
-          }}
-        >
+      {/* ── 48-hour temperature chart ────────────────────────────────────── */}
+      <div className="card" style={{ padding: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+          flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
           <div>
-            <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text)", margin: 0 }}>
-              24-Hour Temperature vs Regional Consensus
+            <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: 0 }}>
+              48-Hour Temperature Profile
             </h3>
-            <p style={{ fontSize: "13.5px", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
-              Comparing {stationId} ({station.name}) observations against the regional station average.
+            <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: "4px 0 0 0" }}>
+              Live readings from replay stream · dots mark anomalous observations
             </p>
           </div>
+        </div>
 
-          <div style={{ display: "flex", gap: "16px", fontSize: "13px" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span
-                style={{
-                  width: "12px",
-                  height: "3px",
-                  borderRadius: "2px",
-                  background: stationId === "AWS005" ? "var(--status-critical)" : "var(--accent)",
-                }}
-              />
-              <span style={{ color: "var(--text)" }}>{stationId} Reading</span>
-            </span>
-            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ width: "12px", height: "3px", borderRadius: "2px", background: "var(--text-muted)" }} />
-              <span style={{ color: "var(--text-muted)" }}>Regional Consensus</span>
-            </span>
+        {history.length === 0 ? (
+          <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center",
+            color: "var(--text-muted)", fontSize: 14 }}>
+            No history available yet — start a run and wait for observations.
           </div>
-        </div>
-
-        <div style={{ height: "260px", width: "100%" }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={history} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="2 2" stroke="var(--border)" vertical={false} />
-              <XAxis
-                dataKey="time"
-                tick={{ fontSize: 12, fill: "var(--text-muted)" }}
-                axisLine={{ stroke: "var(--border)" }}
-                tickLine={false}
-              />
-              <YAxis
-                domain={[15, 45]}
-                tick={{ fontSize: 12, fill: "var(--text-muted)" }}
-                axisLine={{ stroke: "var(--border)" }}
-                tickLine={false}
-                tickFormatter={(v) => `${v}°C`}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: "var(--surface-raised)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "6px",
-                  fontSize: "13px",
-                  color: "var(--text)",
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="baseline"
-                name="Regional Consensus"
-                stroke="var(--text-muted)"
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
-                dot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey={stationId}
-                name={`${stationId} Reading`}
-                stroke={stationId === "AWS005" ? "var(--status-critical)" : "var(--accent)"}
-                strokeWidth={2}
-                dot={{ r: 3, fill: stationId === "AWS005" ? "var(--status-critical)" : "var(--accent)" }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        ) : (
+          <div style={{ height: 260, width: "100%" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={history} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="2 2" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="time" tick={{ fontSize: 12, fill: "var(--text-muted)" }}
+                  axisLine={{ stroke: "var(--border)" }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 12, fill: "var(--text-muted)" }}
+                  axisLine={{ stroke: "var(--border)" }} tickLine={false}
+                  tickFormatter={(v) => `${v}°C`} />
+                <Tooltip contentStyle={{ background: "var(--surface-raised)",
+                  border: "1px solid var(--border)", borderRadius: 6, fontSize: 13, color: "var(--text)" }}
+                  formatter={(v) => [v != null ? `${v.toFixed(1)}°C` : "—", "Temperature"]} />
+                <Line type="monotone" dataKey="temperatureC" name="Temperature"
+                  stroke="var(--accent)" strokeWidth={2} connectNulls
+                  dot={(props) => {
+                    const { payload, cx, cy } = props;
+                    if (!cx || !cy) return null;
+                    const isFault = payload.verdict === "suspected_fault";
+                    const isUncertain = payload.verdict === "uncertain";
+                    if (isFault)
+                      return <circle key={props.key} cx={cx} cy={cy} r={5}
+                        fill="var(--status-critical)" stroke="none" />;
+                    if (isUncertain)
+                      return <circle key={props.key} cx={cx} cy={cy} r={3}
+                        fill="var(--status-warning)" stroke="none" />;
+                    return <circle key={props.key} cx={cx} cy={cy} r={2}
+                      fill="var(--accent)" stroke="none" />;
+                  }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
-      {/* QC Assessments & Self-Healing Pipeline */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "20px",
-          alignItems: "start",
-        }}
-      >
-        {/* Sensor Health Factor Breakdown */}
-        <div className="card" style={{ padding: "20px" }}>
-          <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text)", margin: "0 0 6px 0" }}>
-            Health Score Breakdown
+      {/* ── Evidence + corrections ───────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
+
+        {/* Assessment evidence */}
+        <div className="card" style={{ padding: 20 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: "0 0 6px 0" }}>
+            Assessment Evidence
           </h3>
-          <p style={{ fontSize: "13.5px", color: "var(--text-muted)", margin: "0 0 16px 0", lineHeight: 1.5 }}>
-            Five weighted factors evaluate hardware sensor drift, persistence, and connectivity.
+          <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: "0 0 16px 0", lineHeight: 1.5 }}>
+            Physical and statistical checks fired by the backend policy engine.
           </p>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontSize: "14px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border)", paddingBottom: "8px" }}>
-              <span style={{ color: "var(--text)" }}>Rolling 24h Anomaly Rate (30% weight):</span>
-              <span className="data-mono" style={{ fontWeight: 600, color: stationId === "AWS005" ? "var(--status-critical)" : "var(--text)" }}>
-                {stationId === "AWS005" ? "0.82 (High Penalty)" : "0.02 (Nominal)"}
-              </span>
+          {!assessment ? (
+            <div style={{ fontSize: 14, color: "var(--text-muted)" }}>
+              No assessment available yet.
             </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border)", paddingBottom: "8px" }}>
-              <span style={{ color: "var(--text)" }}>7d Persistence Flag Rate (25% weight):</span>
-              <span className="data-mono" style={{ fontWeight: 600, color: stationId === "AWS003" ? "var(--status-warning)" : "var(--text)" }}>
-                {stationId === "AWS003" ? "0.45 (Drifting)" : "0.00 (Nominal)"}
-              </span>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border)", paddingBottom: "8px" }}>
-              <span style={{ color: "var(--text)" }}>Normalized Drift vs Baseline (20% weight):</span>
-              <span className="data-mono" style={{ fontWeight: 600, color: stationId === "AWS005" ? "var(--status-critical)" : "var(--text)" }}>
-                {stationId === "AWS005" ? "4.8°C / Cap 3.0" : "0.2°C (Nominal)"}
-              </span>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border)", paddingBottom: "8px" }}>
-              <span style={{ color: "var(--text)" }}>Variance Ratio Change (15% weight):</span>
-              <span className="data-mono" style={{ fontWeight: 600 }}>
-                {stationId === "AWS005" ? "0.64 (High Variance)" : "0.04 (Stable)"}
-              </span>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "var(--text)" }}>Missing Data Rate (10% weight):</span>
-              <span className="data-mono" style={{ fontWeight: 600, color: "var(--status-normal)" }}>
-                0.01 (99.9% Uptime)
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Audited Self-Healing Proposals */}
-        <div className="card" style={{ padding: "20px" }}>
-          <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text)", margin: "0 0 6px 0" }}>
-            Substitute Proposals
-          </h3>
-          <p style={{ fontSize: "13.5px", color: "var(--text-muted)", margin: "0 0 16px 0", lineHeight: 1.5 }}>
-            Automated interpolation proposals for quality control review. Raw readings remain intact.
-          </p>
-
-          {corrections.length === 0 ? (
-            <div style={{ fontSize: "14px", color: "var(--text-muted)", padding: "20px 0" }}>
-              No substitute proposals pending for {stationId}. Readings are conforming to expected baselines.
+          ) : assessment.evidence?.length === 0 ? (
+            <div style={{ fontSize: 14, color: "var(--status-normal)" }}>
+              ✓ No evidence flags — all channels within bounds.
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {corrections.map((c) => (
-                <div
-                  key={c.id}
-                  style={{
-                    background: "var(--bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--radius-md)",
-                    padding: "14px",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span className="data-mono" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text)" }}>
-                      {c.id}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {assessment.evidence.map((ev, i) => (
+                <div key={i} style={{ background: "var(--bg)", border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-md)", padding: "10px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span className="badge badge-warning" style={{ fontSize: 11 }}>
+                      {ev.code.replace(/_/g, " ")}
                     </span>
-                    <span className="badge badge-warning" style={{ fontSize: "12px" }}>
-                      {c.status.toUpperCase()}
-                    </span>
+                    {ev.channel && (
+                      <span style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>
+                        {ev.channel}
+                      </span>
+                    )}
+                    {ev.value != null && (
+                      <span className="data-mono" style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                        {ev.value.toFixed(2)} {ev.unit}
+                      </span>
+                    )}
                   </div>
-
-                  <div style={{ fontSize: "14.5px", color: "var(--text)", marginTop: "8px" }}>
-                    Observed: <strong className="data-mono" style={{ color: "var(--status-critical)" }}>{c.rawValue}°C</strong> &rarr; Proposed:{" "}
-                    <strong className="data-mono" style={{ color: "var(--accent)" }}>{c.correctedValue}°C</strong>
-                  </div>
-
-                  <div style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "6px" }}>
-                    Method: {c.method?.replace("_", " ")} &middot; Confidence: {Math.round(c.confidence * 100)}%
-                  </div>
-
-                  <div style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "4px" }}>
-                    {c.notes}
-                  </div>
+                  <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{ev.detail}</div>
                 </div>
               ))}
+              <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4 }}>
+                Policy: <span className="data-mono">{assessment.policyVersion}</span>
+                {" · "}Model: <span className="data-mono">{assessment.modelVersion ?? "—"}</span>
+              </div>
             </div>
           )}
         </div>
+
+        {/* Correction proposals */}
+        <div className="card" style={{ padding: 20 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", margin: "0 0 6px 0" }}>
+            Correction Proposals
+          </h3>
+          <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: "0 0 16px 0", lineHeight: 1.5 }}>
+            Automated spatial estimates for operator review. Raw readings are never mutated.
+          </p>
+
+          {corrections.length === 0 ? (
+            <div style={{ fontSize: 14, color: "var(--text-muted)", padding: "10px 0" }}>
+              No correction proposals for {stationId}.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {corrections.map((c) => {
+                const r = c.result ?? {};
+                const canReview = c.review_state === "proposed" && r.estimate != null;
+                return (
+                  <div key={c.id} style={{ background: "var(--bg)",
+                    border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--text)",
+                        textTransform: "capitalize" }}>
+                        {c.channel} channel
+                      </span>
+                      <span className={`badge ${c.review_state === "accepted" ? "badge-normal" :
+                        c.review_state === "rejected" ? "badge-critical" : "badge-warning"}`}
+                        style={{ fontSize: 11 }}>
+                        {c.review_state?.replace(/_/g, " ") ?? "proposed"}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: 14, color: "var(--text)", marginBottom: 6 }}>
+                      Raw: <strong className="data-mono" style={{ color: "var(--status-critical)" }}>
+                        {r.rawValue != null ? r.rawValue.toFixed(2) : "—"}
+                      </strong>
+                      {r.estimate != null && (
+                        <> → Estimate: <strong className="data-mono" style={{ color: "var(--accent)" }}>
+                          {r.estimate.toFixed(2)}
+                        </strong></>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 6 }}>
+                      Method: {r.method?.replace(/_/g, " ") ?? "—"}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>{r.reason}</div>
+
+                    {canReview && c.review_state === "proposed" && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                        <button className="btn btn-primary" style={{ fontSize: 12, padding: "6px 12px" }}
+                          onClick={() => api.reviewCorrection(c.id, "accepted").then(load)}>
+                          Accept estimate
+                        </button>
+                        <button className="btn" style={{ fontSize: 12, padding: "6px 12px" }}
+                          onClick={() => api.reviewCorrection(c.id, "rejected").then(load)}>
+                          Reject
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReadingCard({ label, value, desc, alert }) {
+  return (
+    <div className="card" style={{ padding: 18 }}>
+      <div style={{ fontSize: 13.5, color: "var(--text-muted)", fontWeight: 500 }}>{label}</div>
+      <div className="data-mono" style={{ fontSize: 28, fontWeight: 700, marginTop: 6,
+        color: alert ? "var(--status-critical)" : "var(--text)" }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 13, color: alert ? "var(--status-warning)" : "var(--text-muted)", marginTop: 6 }}>
+        {desc}
       </div>
     </div>
   );

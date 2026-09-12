@@ -1,398 +1,331 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import StatusBadge from "../../components/StatusBadge";
-import {
-  IconArrowRight,
-  IconPause,
-  IconPlay,
-  IconStep,
-} from "../../components/Icons";
+import RelativeTime from "../../components/RelativeTime";
+import { IconArrowRight, IconPause, IconPlay, IconStep, IconRefresh } from "../../components/Icons";
 import { api } from "../../api/client";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { subscribeToEvents } from "../../sockets/socketClient";
 
 export default function DashboardOverview() {
-  const [stations, setStations] = useState([]);
-  const [anomalies, setAnomalies] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [replayState, setReplayState] = useState({ state: "running", scenario: "spike" });
-  const [isLoading, setIsLoading] = useState(true);
+  const [stations, setStations]     = useState([]);
+  const [faults, setFaults]         = useState([]);
+  const [history, setHistory]       = useState([]);
+  const [run, setRun]               = useState(null);
+  const [isLoading, setIsLoading]   = useState(true);
+  const [error, setError]           = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
-    Promise.all([
-      api.getStations(),
-      api.getAssessments(),
-      api.getStationHistory("AWS005"),
-      api.getLatestRun(),
-    ]).then(([sData, aData, hData, rData]) => {
-      if (mounted) {
-        setStations(sData || []);
-        setAnomalies(aData || []);
-        setHistory(hData || []);
-        if (rData) setReplayState(rData);
-        setIsLoading(false);
+  const load = useCallback(async () => {
+    try {
+      // 1. Get latest run first — everything else depends on it
+      const latestRun = await api.getLatestRun();
+      setRun(latestRun);
+      const runId = latestRun?.id ?? null;
+
+      // 2. Parallel fetch stations + non-normal assessments
+      const [stData, faultData] = await Promise.all([
+        api.getStations(runId),
+        runId ? api.getAssessments(runId, "suspected_fault") : Promise.resolve([]),
+      ]);
+      setStations(stData);
+      setFaults(faultData);
+
+      // 3. History for the first station with a suspected fault, else first station
+      const focusId = faultData[0]?.stationId ?? stData[0]?.stationId;
+      if (focusId && runId) {
+        const hist = await api.getStationHistory(focusId, runId);
+        setHistory(hist);
       }
-    });
-    return () => {
-      mounted = false;
-    };
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  const handleToggleReplay = async () => {
-    const nextAction = replayState.state === "running" ? "pause" : "start";
-    setReplayState((prev) => ({ ...prev, state: nextAction === "start" ? "running" : "paused" }));
-    await api.controlRun("current", nextAction);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Subscribe to SSE for live updates
+  useEffect(() => {
+    if (!run?.id) return;
+    const unsub = subscribeToEvents(run.id, (evt) => {
+      if (["run.updated", "assessment.created", "batch.processed"].includes(evt.type)) {
+        load();
+      }
+    });
+    return unsub;
+  }, [run?.id, load]);
+
+  const handleControl = async (action) => {
+    if (!run?.id) return;
+    try {
+      const updated = await api.controlRun(run.id, action);
+      setRun(updated);
+    } catch (e) {
+      setError(e.message);
+    }
   };
 
-  const handleStepReplay = async () => {
-    await api.controlRun("current", "step");
-  };
+  // Derived stats
+  const faultCount    = stations.filter((s) => s.verdict === "suspected_fault").length;
+  const uncertainCount = stations.filter((s) => s.verdict === "uncertain").length;
+  const temps         = stations.map((s) => s.temperatureC).filter((v) => v != null);
+  const regionalMean  = temps.length ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) : null;
 
-  // Primary active incident requiring operator attention
-  const activeIncident = anomalies.find((a) => a.severity === "critical") || anomalies[0];
+  // Primary incident = most recent suspected_fault assessment
+  const incident = faults[0] ?? null;
+  // Focus station for the chart
+  const focusStationId = incident?.stationId ?? stations[0]?.stationId;
 
   if (isLoading) {
     return (
       <div style={{ padding: "60px 20px", textAlign: "center", color: "var(--text-muted)", fontSize: "15px" }}>
-        Loading network status and telemetry...
+        Loading network status…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: "40px 20px", textAlign: "center" }}>
+        <p style={{ color: "var(--status-critical)", marginBottom: 12 }}>Failed to load: {error}</p>
+        <button className="btn" onClick={load}>Retry</button>
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "32px", paddingBottom: "32px" }}>
-      {/* Header with Replay Context */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-end",
-          flexWrap: "wrap",
-          gap: "16px",
-          borderBottom: "1px solid var(--border)",
-          paddingBottom: "16px",
-        }}
-      >
+    <div style={{ display: "flex", flexDirection: "column", gap: 32, paddingBottom: 32 }}>
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end",
+        flexWrap: "wrap", gap: 16, borderBottom: "1px solid var(--border)", paddingBottom: 16 }}>
         <div>
-          <h1 style={{ fontSize: "24px", fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px" }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.3px" }}>
             Network Overview
           </h1>
-          <p style={{ fontSize: "14.5px", color: "var(--text-secondary)", margin: "4px 0 0 0" }}>
-            {stations.length} automated stations reporting across the Northern India regional network.
+          <p style={{ fontSize: 14.5, color: "var(--text-secondary)", margin: "4px 0 0 0" }}>
+            {stations.length} station{stations.length !== 1 ? "s" : ""} reporting
+            {run ? ` · scenario: ${run.scenario}` : ""}.
           </p>
         </div>
 
-        {/* Quiet Replay Controls */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            padding: "4px 10px",
-            borderRadius: "var(--radius-sm)",
-            fontSize: "13px",
-          }}
-        >
-          <span style={{ color: "var(--text-muted)" }}>Scenario:</span>
-          <span style={{ fontWeight: 600, color: "var(--text)" }}>
-            {replayState.scenario === "spike" ? "Temperature Spike" : replayState.scenario}
-          </span>
-          <span style={{ color: "var(--border)" }}>|</span>
-          <button
-            onClick={handleToggleReplay}
-            className="btn btn-ghost"
-            style={{ padding: "4px 8px", height: "26px", fontSize: "12.5px" }}
-          >
-            {replayState.state === "running" ? <IconPause size={12} /> : <IconPlay size={12} />}
-            <span>{replayState.state === "running" ? "Pause" : "Resume"}</span>
-          </button>
-          <button
-            onClick={handleStepReplay}
-            disabled={replayState.state === "running"}
-            className="btn btn-ghost"
-            style={{ padding: "4px 8px", height: "26px", fontSize: "12.5px" }}
-            title="Step one interval forward"
-          >
-            <IconStep size={12} />
-            <span>Step</span>
-          </button>
-        </div>
+        {/* Replay controls */}
+        {run && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10,
+            background: "var(--surface)", border: "1px solid var(--border)",
+            padding: "4px 10px", borderRadius: "var(--radius-sm)", fontSize: 13 }}>
+            <span style={{ color: "var(--text-muted)" }}>Scenario:</span>
+            <span style={{ fontWeight: 600, color: "var(--text)" }}>{run.scenario}</span>
+            <span style={{ color: "var(--border)" }}>|</span>
+            <span className="data-mono" style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              {run.state}
+            </span>
+            <span style={{ color: "var(--border)" }}>|</span>
+            <button onClick={() => handleControl(run.state === "running" ? "pause" : "start")}
+              className="btn btn-ghost" style={{ padding: "4px 8px", height: 26, fontSize: 12.5 }}>
+              {run.state === "running" ? <IconPause size={12} /> : <IconPlay size={12} />}
+              <span>{run.state === "running" ? "Pause" : "Resume"}</span>
+            </button>
+            <button onClick={() => handleControl("step")}
+              disabled={run.state === "running"}
+              className="btn btn-ghost" style={{ padding: "4px 8px", height: 26, fontSize: 12.5 }}
+              title="Step one interval (requires paused run)">
+              <IconStep size={12} /><span>Step</span>
+            </button>
+            <button onClick={load} className="btn btn-ghost"
+              style={{ padding: "4px 8px", height: 26, fontSize: 12.5 }}>
+              <IconRefresh size={12} />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* 3 Summary Metrics - Spacious and Uncluttered */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-          gap: "16px",
-        }}
-      >
+      {/* ── Summary cards ──────────────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 16 }}>
         <div className="card" style={{ padding: "20px 24px" }}>
-          <div style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>
-            Stations Reporting
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginTop: "6px" }}>
-            <span className="data-mono" style={{ fontSize: "28px", fontWeight: 700, color: "var(--text)" }}>
-              {stations.length} of {stations.length}
+          <div style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 500 }}>Stations Reporting</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
+            <span className="data-mono" style={{ fontSize: 28, fontWeight: 700, color: "var(--text)" }}>
+              {stations.length}
             </span>
-            <span style={{ fontSize: "13px", color: "var(--status-normal)" }}>online</span>
+            <span style={{ fontSize: 13, color: "var(--status-normal)" }}>online</span>
           </div>
-          <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
-            AWS001 through AWS006 transmitting
+          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "4px 0 0 0" }}>
+            {stations.map((s) => s.stationId).join(", ") || "—"}
           </p>
         </div>
 
         <div className="card" style={{ padding: "20px 24px" }}>
-          <div style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>
-            Items Needing Attention
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginTop: "6px" }}>
-            <span className="data-mono" style={{ fontSize: "28px", fontWeight: 700, color: "var(--status-critical)" }}>
-              {anomalies.filter((a) => a.severity === "critical").length}
+          <div style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 500 }}>Items Needing Attention</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
+            <span className="data-mono" style={{ fontSize: 28, fontWeight: 700,
+              color: faultCount > 0 ? "var(--status-critical)" : "var(--status-normal)" }}>
+              {faultCount}
             </span>
-            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>suspected fault</span>
+            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>suspected fault</span>
           </div>
-          <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
-            AWS005 thermistor spike &middot; 1 drift warning
+          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "4px 0 0 0" }}>
+            {uncertainCount} uncertain · {stations.length - faultCount - uncertainCount} nominal
           </p>
         </div>
 
         <div className="card" style={{ padding: "20px 24px" }}>
-          <div style={{ fontSize: "13px", color: "var(--text-muted)", fontWeight: 500 }}>
-            Regional Mean Temperature
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginTop: "6px" }}>
-            <span className="data-mono" style={{ fontSize: "28px", fontWeight: 700, color: "var(--text)" }}>
-              25.8°C
+          <div style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 500 }}>Regional Mean Temperature</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
+            <span className="data-mono" style={{ fontSize: 28, fontWeight: 700, color: "var(--text)" }}>
+              {regionalMean != null ? `${regionalMean}°C` : "—"}
             </span>
-            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>expected ~25°C</span>
           </div>
-          <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
-            Baseline diurnal variation within bounds
+          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "4px 0 0 0" }}>
+            Across {temps.length} reporting station{temps.length !== 1 ? "s" : ""}
           </p>
         </div>
       </div>
 
-      {/* Primary Actionable Incident Banner */}
-      {activeIncident && (
-        <div
-          className="card"
-          style={{
-            padding: "20px 24px",
-            borderLeft: "4px solid var(--status-critical)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: "16px",
-          }}
-        >
+      {/* ── Active incident banner ──────────────────────────────────────── */}
+      {incident && (
+        <div className="card" style={{ padding: "20px 24px",
+          borderLeft: "4px solid var(--status-critical)",
+          display: "flex", justifyContent: "space-between",
+          alignItems: "center", flexWrap: "wrap", gap: 16 }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
               <span className="badge badge-critical">Attention Required</span>
-              <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>2 minutes ago</span>
+              <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                <RelativeTime timestamp={incident.observedAt} />
+              </span>
             </div>
-            <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text)" }}>
-              {activeIncident.stationName} ({activeIncident.stationId}) &mdash; Sudden +17.8°C spike reported
+            <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text)" }}>
+              {incident.stationId} — {incident.suspectedCategory?.replace(/_/g, " ") ?? "suspected fault"}
             </div>
-            <p style={{ fontSize: "14px", color: "var(--text-secondary)", margin: "4px 0 0 0", maxWidth: "780px" }}>
-              Reported reading reached 42.7°C while neighboring stations AWS001 and AWS002 confirm normal 24–26°C conditions without pressure drops. Isolated as localized thermistor failure.
+            <p style={{ fontSize: 14, color: "var(--text-secondary)", margin: "4px 0 0 0", maxWidth: 780 }}>
+              {incident.explanation}
             </p>
+            {incident.affectedChannels?.length > 0 && (
+              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "4px 0 0 0" }}>
+                Affected channels: <strong>{incident.affectedChannels.join(", ")}</strong>
+                {" · "}Anomaly score: <strong className="data-mono">{incident.anomalyScore?.toFixed(3)}</strong>
+              </p>
+            )}
           </div>
-
-          <div style={{ display: "flex", gap: "10px" }}>
-            <Link
-              href={`/dashboard/stations/${activeIncident.stationId}`}
-              className="btn btn-primary"
-            >
-              <span>Inspect Station Telemetry</span>
-              <IconArrowRight size={14} />
+          <div style={{ display: "flex", gap: 10 }}>
+            <Link href={`/dashboard/stations/${incident.stationId}`} className="btn btn-primary">
+              <span>Inspect Station</span><IconArrowRight size={14} />
             </Link>
-            <Link
-              href="/dashboard/anomalies"
-              className="btn"
-            >
-              <span>View in Worklist</span>
-            </Link>
+            <Link href="/dashboard/anomalies" className="btn">View Worklist</Link>
           </div>
         </div>
       )}
 
-      {/* Main Analytical View: 24-Hour Diurnal Temperature Profile */}
-      <div className="card" style={{ padding: "24px" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            marginBottom: "20px",
-            flexWrap: "wrap",
-            gap: "12px",
-          }}
-        >
-          <div>
-            <h2 style={{ fontSize: "17px", fontWeight: 600, color: "var(--text)" }}>
-              24-Hour Diurnal Temperature Profile
-            </h2>
-            <p style={{ fontSize: "13.5px", color: "var(--text-secondary)", margin: "2px 0 0 0" }}>
-              Comparing AWS005 against regional neighbor consensus.
-            </p>
+      {/* ── 48-hour temperature chart for focus station ─────────────────── */}
+      {history.length > 0 && (
+        <div className="card" style={{ padding: 24 }}>
+          <div style={{ display: "flex", justifyContent: "space-between",
+            alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <h2 style={{ fontSize: 17, fontWeight: 600, color: "var(--text)" }}>
+                48-Hour Temperature — {focusStationId}
+              </h2>
+              <p style={{ fontSize: 13.5, color: "var(--text-secondary)", margin: "2px 0 0 0" }}>
+                Live readings from the backend replay stream.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 16, fontSize: 13 }}>
+              <LegendLine color="var(--status-critical)" label="Suspected fault" />
+              <LegendLine color="var(--accent)" label="Normal" />
+            </div>
           </div>
-
-          <div style={{ display: "flex", gap: "16px", fontSize: "13px" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ width: "12px", height: "2px", background: "var(--status-critical)" }} />
-              <span style={{ color: "var(--text)" }}>AWS005 (Observed)</span>
-            </span>
-            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ width: "12px", height: "2px", background: "var(--accent)" }} />
-              <span style={{ color: "var(--text-secondary)" }}>Regional Baseline</span>
-            </span>
+          <div style={{ height: 260, width: "100%" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={history} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="2 2" stroke="var(--border-subtle)" vertical={false} />
+                <XAxis dataKey="time" tick={{ fontSize: 11, fill: "var(--text-muted)" }}
+                  axisLine={{ stroke: "var(--border)" }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }}
+                  axisLine={{ stroke: "var(--border)" }} tickLine={false}
+                  tickFormatter={(v) => `${v}°`} />
+                <Tooltip contentStyle={{ background: "var(--surface-raised)",
+                  border: "1px solid var(--border)", borderRadius: 6, fontSize: 12, color: "var(--text)" }}
+                  formatter={(v) => [`${v?.toFixed(1)}°C`, "Temperature"]} />
+                <Line type="monotone" dataKey="temperatureC" name="Temperature"
+                  stroke="var(--accent)" strokeWidth={2} dot={(props) => {
+                    const { payload, cx, cy } = props;
+                    if (payload.verdict === "suspected_fault")
+                      return <circle key={props.key} cx={cx} cy={cy} r={4} fill="var(--status-critical)" stroke="none" />;
+                    return <circle key={props.key} cx={cx} cy={cy} r={2} fill="var(--accent)" stroke="none" />;
+                  }} />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
+      )}
 
-        <div style={{ height: "260px", width: "100%" }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={history} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="2 2" stroke="var(--border-subtle)" vertical={false} />
-              <XAxis
-                dataKey="time"
-                tick={{ fontSize: 11, fill: "var(--text-muted)" }}
-                axisLine={{ stroke: "var(--border)" }}
-                tickLine={false}
-              />
-              <YAxis
-                domain={[15, 45]}
-                tick={{ fontSize: 11, fill: "var(--text-muted)" }}
-                axisLine={{ stroke: "var(--border)" }}
-                tickLine={false}
-                tickFormatter={(v) => `${v}°`}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: "var(--surface-raised)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "6px",
-                  fontSize: "12px",
-                  color: "var(--text)",
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="baseline"
-                name="Regional Baseline"
-                stroke="var(--accent)"
-                strokeWidth={1.8}
-                dot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="AWS005"
-                name="AWS005 Observed"
-                stroke="var(--status-critical)"
-                strokeWidth={2}
-                dot={{ r: 2.5, fill: "var(--status-critical)" }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Clean Station Status Table */}
+      {/* ── Station table ───────────────────────────────────────────────── */}
       <div className="card" style={{ overflow: "hidden" }}>
-        <div
-          style={{
-            padding: "16px 20px",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)",
+          display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--text)" }}>
-              Regional Stations Status
-            </h3>
-            <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: "2px 0 0 0" }}>
-              Latest observation snapshot across all 6 monitoring nodes.
+            <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--text)" }}>Station Status</h3>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "2px 0 0 0" }}>
+              Latest observation snapshot.
             </p>
           </div>
-          <Link
-            href="/dashboard/stations"
-            style={{ fontSize: "13.5px", color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}
-          >
-            View station directory &rarr;
+          <Link href="/dashboard/stations"
+            style={{ fontSize: 13.5, color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}>
+            View all →
           </Link>
         </div>
-
         <div className="table-container" style={{ border: "none" }}>
           <table className="data-table">
             <thead>
               <tr>
-                <th>Station</th>
-                <th>Temperature</th>
-                <th>Humidity</th>
-                <th>Pressure</th>
-                <th>Status</th>
-                <th style={{ textAlign: "right" }}>Action</th>
+                <th>Station</th><th>Temperature</th><th>Humidity</th>
+                <th>Pressure</th><th>Verdict</th><th style={{ textAlign: "right" }}>Action</th>
               </tr>
             </thead>
             <tbody>
-              {stations.map((st) => {
-                const sId = st.stationId || st.station_id;
-                const r = st.reading || {};
-                const temp = r.temperatureC ?? r.temperature ?? "—";
-                const hum = r.relativeHumidityPct ?? r.humidity ?? "—";
-                const pres = r.pressureHpa ?? r.pressure ?? "—";
-
-                return (
-                  <tr key={sId}>
-                    <td>
-                      <div style={{ fontWeight: 600, color: "var(--text)" }}>{st.name}</div>
-                      <div className="data-mono" style={{ fontSize: "12px", color: "var(--text-muted)" }}>{sId}</div>
-                    </td>
-                    <td
-                      className="data-mono"
-                      style={{
-                        fontWeight: sId === "AWS005" ? 700 : 400,
-                        color: sId === "AWS005" ? "var(--status-critical)" : "var(--text)",
-                      }}
-                    >
-                      {typeof temp === "number" ? temp.toFixed(1) + "°C" : temp}
-                    </td>
-                    <td
-                      className="data-mono"
-                      style={{
-                        color: sId === "AWS003" ? "var(--status-warning)" : "var(--text)",
-                      }}
-                    >
-                      {typeof hum === "number" ? hum.toFixed(0) + "%" : hum}
-                    </td>
-                    <td className="data-mono">
-                      {typeof pres === "number" ? pres.toFixed(1) + " hPa" : pres}
-                    </td>
-                    <td>
-                      <StatusBadge verdict={st.verdict || st.status} />
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <Link
-                        href={`/dashboard/stations/${sId}`}
-                        style={{ color: "var(--accent)", textDecoration: "none", fontSize: "13px", fontWeight: 500 }}
-                      >
-                        Inspect &rarr;
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
+              {stations.map((st) => (
+                <tr key={st.stationId}>
+                  <td>
+                    <div style={{ fontWeight: 600, color: "var(--text)" }}>{st.name}</div>
+                    <div className="data-mono" style={{ fontSize: 12, color: "var(--text-muted)" }}>{st.stationId}</div>
+                  </td>
+                  <td className="data-mono" style={{ color: st.verdict === "suspected_fault" ? "var(--status-critical)" : "var(--text)" }}>
+                    {st.temperatureC != null ? `${st.temperatureC.toFixed(1)}°C` : "—"}
+                  </td>
+                  <td className="data-mono">
+                    {st.relativeHumidityPct != null ? `${st.relativeHumidityPct.toFixed(0)}%` : "—"}
+                  </td>
+                  <td className="data-mono">
+                    {st.pressureHpa != null ? `${st.pressureHpa.toFixed(1)} hPa` : "—"}
+                  </td>
+                  <td><StatusBadge verdict={st.verdict} /></td>
+                  <td style={{ textAlign: "right" }}>
+                    <Link href={`/dashboard/stations/${st.stationId}`}
+                      style={{ color: "var(--accent)", textDecoration: "none", fontSize: 13, fontWeight: 500 }}>
+                      Inspect →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </div>
     </div>
+  );
+}
+
+function LegendLine({ color, label }) {
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{ width: 12, height: 2, background: color, display: "inline-block" }} />
+      <span style={{ color: "var(--text-secondary)" }}>{label}</span>
+    </span>
   );
 }
