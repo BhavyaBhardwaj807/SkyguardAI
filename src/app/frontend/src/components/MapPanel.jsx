@@ -33,8 +33,8 @@ export default function MapPanel({ stations = [], selectedStationId, onSelectSta
       border: "1px solid var(--border)", position: "relative", background: "#0F151C" }}>
       <MapContainer center={center} zoom={5} scrollWheelZoom style={{ height: "100%", width: "100%", background: "#0B0F14" }}>
         <TileLayer
-          attribution='&copy; <a href="https://carto.com/">CARTO</a> &copy; OpenStreetMap contributors'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          attribution='Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ'
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
         />
         {stations.map((s) => (
           <StationMarker
